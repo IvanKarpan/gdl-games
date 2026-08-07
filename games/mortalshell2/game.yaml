@@ -1,0 +1,671 @@
+# Mortal Shell II — Vortex GDL extension
+#
+# Engine: Unreal Engine with IoStore (.pak / .ucas / .utoc). Observed on Open Beta.
+# Shipping exe: MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
+# Steam bootstrap at install root: MortalShell2.exe
+#
+# Steam AppIDs:
+#   - Open Beta (observed): 4711740 — stores.steam below (GDL allows one value)
+#   - Full release (store page): 2584270 — preferred at runtime via hooks wrap
+# Dual discovery (release preferred, beta fallback) is injected by
+# games/mortalshell2/build.mjs + src/hooks.ts::wrapApiForDualSteamDiscovery
+# (optional per-game build.mjs — Nx plugin uses it when present).
+#
+# Framework ownership (optional — never pre-installed by managing the game):
+#   UE4SS: absent | partial | vortex-managed | externally-managed | ultra-managed
+#   Healthy UE4SS: dwmapi.dll + ue4ss/UE4SS.dll + ue4ss/Mods/
+#   Ultra+: UltraPlusExtensions/, ~UltraPlus_*, %LOCALAPPDATA%/UltraPlusManager
+#   DmgModLoader (DML): Content/Paks/dml/ with .pak payload — NOT Binaries/Win64/DML
+#     (that path is Microsoft DirectML on Open Beta).
+#   RHI / RenoDX: dxgi.dll, reshade.ini, reshade-shaders/, *.addon64 — separate.
+#   dwmapi.dll + dxgi.dll together is valid (not a conflict).
+# Nexus mod 5 = verified UE4SS runtime (dwmapi.dll + ue4ss/ including BPModLoaderMod).
+# Archives with dwmapi/UE4SS.dll install as framework → Binaries/Win64 (not ue4ss/Mods).
+# LogicMods need healthy UE4SS + enabled BPModLoaderMod (shipped in mod 5). Fix → mods/5.
+# DmgModLoader (mods/4 → Content/Paks/dml) remains routed but is not the LogicMods Fix path.
+# Hooks must export Vortex 2.4 health checks (category/severity/triggers; checkMod
+# or check). Missing `triggers` crashes HealthCheckRegistry and bricks Vortex.
+# missingUe4ssCheck / logicModLoaderCheck are game-level check+fix.
+# build.mjs stubs registerHealthCheck in the lifecycle vitest harness (gdl gap).
+#
+# Other notes:
+#   - Standard asset paks → Content/Paks/~mods (matches Ultra+ layout).
+#   - LogicMods → Content/Paks/LogicMods/<ModName>/ — need enabled BPModLoaderMod under ue4ss/Mods
+#     (included in Nexus mortalshell2/mods/5). Bare UE4SS/Ultra+ without that Lua mod ≠ enough.
+#   - Full-release install folder name is unverified — do not assume beta path identity.
+# Contribution backlog / publish checklist: PLAN.md (working notes; not in the zip).
+# Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
+
+gdl: 1
+version: 0.1.0
+
+game:
+  id: mortalshell2
+  name: Mortal Shell II
+  # Prefer the shipping executable (not the Steam bootstrap MortalShell2.exe).
+  executable: MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
+  requiredFiles:
+    - MortalShell2.exe
+    - MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
+  logo: gameart.jpg
+  author: Community
+  nexusDomain: mortalshell2
+  queryModPath: ${pakModsPath}
+  details:
+    # Prefer hardlinks (same drive as staging). Keep symlinks available as fallback —
+    # supportsSymlinks:false + one unwritable modType path yields "No deployment method".
+    supportsSymlinks: true
+    gameProjectFolder: MortalShell2
+    steamAppIdBeta: "4711740"
+    steamAppIdRelease: "2584270"
+    # Staging folder must share the game drive for hardlinks (e.g. D:\Vortex\{game}).
+    ignoreConflicts:
+      - mods.txt
+      - UE4SS-settings.ini
+      - enabled.txt
+      - reshade.ini
+    ignoreDeploy:
+      - mods.txt
+
+stores:
+  # GDL single value — beta AppID so store helper works before the wrap runs.
+  # Runtime wrap prefers 2584270 then falls back to 4711740.
+  steam: "4711740"
+
+context:
+  gamePath: ${installPath}/MortalShell2
+  win64Path: ${gamePath}/Binaries/Win64
+  paksPath: ${gamePath}/Content/Paks
+  pakModsPath: ${gamePath}/Content/Paks/~mods
+  dmlPath: ${gamePath}/Content/Paks/dml
+  logicModsPath: ${gamePath}/Content/Paks/LogicMods
+  ue4ssRootPath: ${win64Path}/ue4ss
+  ue4ssModsPath: ${win64Path}/ue4ss/Mods
+
+modTypes:
+  - {
+      id: mortalshell2-ue4ss-framework,
+      name: "UE4SS Framework",
+      path: "${win64Path}",
+    }
+  - {
+      id: mortalshell2-ue4ss-mod,
+      name: "UE4SS Mod",
+      path: "${ue4ssModsPath}",
+    }
+  # Deploy root is ue4ss/ when the archive already contains Mods/...
+  - {
+      id: mortalshell2-ue4ss-tree,
+      name: "UE4SS tree (ue4ss/Mods)",
+      path: "${ue4ssRootPath}",
+    }
+  # DmgModLoader (Nexus mortalshell2/mods/4) — NOT Microsoft DirectML, NOT ~mods
+  - {
+      id: mortalshell2-dml-framework,
+      name: "DmgModLoader (DML)",
+      path: "${dmlPath}",
+    }
+  - {
+      id: mortalshell2-dml-tree,
+      name: "DmgModLoader tree (Content/Paks)",
+      path: "${paksPath}",
+    }
+  # Named LogicMod folders (AutoPickup/) land directly under LogicMods/
+  - {
+      id: mortalshell2-logicmods,
+      name: "LogicMods (named mod folder)",
+      path: "${logicModsPath}",
+    }
+  # Archives that already include a LogicMods/ segment deploy under Content/Paks
+  - {
+      id: mortalshell2-logicmods-tree,
+      name: "LogicMods tree (Content/Paks)",
+      path: "${paksPath}",
+    }
+  - {
+      id: mortalshell2-pak,
+      name: "PAK mods (~mods)",
+      path: "${pakModsPath}",
+    }
+  - {
+      id: mortalshell2-binaries,
+      name: "Binaries add-on (ReShade / RenoDX)",
+      path: "${win64Path}",
+    }
+  - {
+      id: mortalshell2-root,
+      name: "Root (game folder)",
+      path: "${installPath}",
+    }
+  - {
+      id: mortalshell2-contentfolder,
+      name: "Content / project folder",
+      path: "${gamePath}",
+    }
+
+installers:
+  # --- 15: UE4SS framework (Nexus mod 5 shape: dwmapi + ue4ss/ + stock Lua mods) ---
+  # Matches even when Scripts/*.lua are present — those are part of the runtime pack
+  # (BPModLoaderMod, ConsoleEnablerMod, …). Must NOT route to ue4ss/Mods alone.
+  - id: ue4ss-framework
+    priority: 15
+    when: { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+    anchor: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}"
+    take: parent
+    placeAt: "${win64Path}"
+    modType: mortalshell2-ue4ss-framework
+
+  # --- 16: DmgModLoader already under dml/ ---
+  - id: dml-framework-rooted
+    priority: 16
+    when: { hasFile: "**/dml/dml.pak" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/Scripts/*.lua" }
+    anchor: "**/dml/"
+    take: self
+    placeAt: "${paksPath}"
+    modType: mortalshell2-dml-tree
+
+  # --- 17: flat DML archive (dml.pak + dmlcore_P.* at root) → Content/Paks/dml/ ---
+  - id: dml-framework
+    priority: 17
+    when:
+      all:
+        - { hasFile: "**/dml.pak" }
+        - { hasFile: "**/dml.ucas" }
+        - { hasFile: "**/dml.utoc" }
+    unless:
+      any:
+        - { hasFile: "**/dml/dml.pak" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/Scripts/*.lua" }
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll}" }
+    anchor: "**/dml.pak"
+    take: parent
+    placeAt: "${dmlPath}"
+    modType: mortalshell2-dml-framework
+
+  # --- 20: UE4SS mod already rooted at ue4ss/Mods/... ---
+  - id: ue4ss-mod-rooted
+    priority: 20
+    when: { hasFile: "**/ue4ss/Mods/**/Scripts/*.lua" }
+    unless: { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+    anchor: "**/ue4ss/Mods/"
+    take: self
+    placeAt: "${ue4ssRootPath}"
+    modType: mortalshell2-ue4ss-tree
+
+  # --- 21: UE4SS mod rooted at Mods/ModName/... ---
+  - id: ue4ss-mod-mods-prefix
+    priority: 21
+    when: { hasFile: "**/Mods/**/Scripts/*.lua" }
+    unless:
+      any:
+        - { hasFile: "**/ue4ss/Mods/**/Scripts/*.lua" }
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+    anchor: "**/Mods/"
+    take: self
+    placeAt: "${ue4ssRootPath}"
+    modType: mortalshell2-ue4ss-tree
+
+  # --- 22: UE4SS mod ModName/Scripts/main.lua ---
+  - id: ue4ss-mod-scripts
+    priority: 22
+    when: { hasFile: "**/Scripts/*.lua" }
+    unless:
+      any:
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+        - { hasFile: "**/ue4ss/Mods/**/Scripts/*.lua" }
+        - { hasFile: "**/Mods/**/Scripts/*.lua" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+    anchor: "**/Scripts/*.lua"
+    take: parent.parent
+    placeAt: "${ue4ssModsPath}"
+    modType: mortalshell2-ue4ss-mod
+
+  # --- 23: UE4SS mod enabled.txt only ---
+  - id: ue4ss-mod-enabled
+    priority: 23
+    when: { hasFile: "**/enabled.txt" }
+    unless:
+      any:
+        - { hasFile: "**/Scripts/*.lua" }
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+    anchor: "**/enabled.txt"
+    take: parent.parent
+    placeAt: "${ue4ssModsPath}"
+    modType: mortalshell2-ue4ss-mod
+
+  # --- 24: archive already containing Content/Paks/LogicMods ---
+  - id: logicmods-rooted
+    priority: 24
+    when: { hasFile: "**/Content/Paks/LogicMods/**" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+    anchor: "**/Content/Paks/LogicMods/"
+    take: self
+    placeAt: "${paksPath}"
+    modType: mortalshell2-logicmods-tree
+
+  # --- 25: LogicMods folder at archive root / wrapper ---
+  - id: logicmods-folder
+    priority: 25
+    when: { hasFile: "**/LogicMods/**/*.{pak,ucas,utoc}" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/Content/Paks/LogicMods/**" }
+    anchor: "**/LogicMods/"
+    take: self
+    placeAt: "${paksPath}"
+    modType: mortalshell2-logicmods-tree
+
+  # --- 26: LogicMod triplet in a named folder (no _P suffix) ---
+  # Example: AutoPickup/AutoPickup.pak(+ucas/utoc) → LogicMods/AutoPickup/
+  # copy (no strip) preserves the named folder under the LogicMods modType root.
+  # Single-anchor take:parent would flatten away the folder name.
+  - id: logicmods-named-triplet
+    priority: 26
+    when:
+      all:
+        - { hasFile: "**/*.pak" }
+        - { hasFile: "**/*.ucas" }
+        - { hasFile: "**/*.utoc" }
+    unless:
+      any:
+        - { hasFile: "**/*_P.pak" }
+        - { hasFile: "**/*_p.pak" }
+        - { hasFile: "**/LogicMods/**" }
+        - { hasFile: "**/Content/Paks/**" }
+        - { hasFile: "**/~mods/**" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/{dwmapi.dll,dxgi.dll,UE4SS.dll}" }
+    copy: { stripCommonRoot: false }
+    modType: mortalshell2-logicmods
+
+  # --- 10: game-root-relative (MortalShell2/ or Engine/) ---
+  - id: root
+    priority: 10
+    when:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+    anchor: "**/*"
+    take: archive-root
+    placeAt: "${installPath}"
+    modType: mortalshell2-root
+
+  # --- 11: project-relative Content/Binaries/Config trees ---
+  - id: content-folder
+    priority: 11
+    when:
+      any:
+        - { hasFile: "Content/**" }
+        - { hasFile: "Binaries/**" }
+        - { hasFile: "Config/**" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        # Let dedicated LogicMods installers own these trees.
+        - { hasFile: "**/Content/Paks/LogicMods/**" }
+        - { hasFile: "**/LogicMods/**" }
+    anchor: "**/*"
+    take: archive-root
+    placeAt: "${gamePath}"
+    modType: mortalshell2-contentfolder
+
+  # --- 28: standard IoStore / PAK → ~mods (flatten basename) ---
+  - id: pak
+    priority: 28
+    when: { hasFile: "**/*.{pak,utoc}" }
+    unless:
+      any:
+        - { hasFile: "**/LogicMods/**" }
+        - { hasFile: "**/Content/Paks/LogicMods/**" }
+        - { hasFile: "**/dml.pak" }
+        - { hasFile: "**/dml/**" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "Content/**" }
+        - { hasFile: "Binaries/**" }
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll}" }
+    anchor: "**/*.{pak,utoc}"
+    take: parent
+    placeAt: "${pakModsPath}"
+    modType: mortalshell2-pak
+
+  # --- 30: ReShade / RenoDX binaries add-on ---
+  - id: binaries-addon
+    priority: 30
+    when:
+      any:
+        - { hasFile: "**/dxgi.dll" }
+        - { hasFile: "**/*.addon64" }
+        - { hasFile: "**/reshade.ini" }
+    unless:
+      any:
+        - { hasFile: "**/dwmapi.dll" }
+        - { hasFile: "**/UE4SS.dll" }
+        - { hasFile: "**/Scripts/*.lua" }
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/*.{pak,ucas,utoc}" }
+    anchor: "**/{dxgi.dll,reshade.ini,*.addon64}"
+    take: parent
+    placeAt: "${win64Path}"
+    modType: mortalshell2-binaries
+
+discovery:
+  version: { hook: detectGameVersion }
+
+setup:
+  ensureDirs:
+    - ${logicModsPath}
+    - ${pakModsPath}
+    - ${dmlPath}
+    - ${ue4ssModsPath}
+
+events:
+  # mods.txt merge + toast when LogicMods/UE4SS mods need frameworks (Health UI alone is easy to miss).
+  did-deploy: { hook: afterDeploy }
+
+# Ownership / missing-framework guidance (standard GDL diagnostics → health checks).
+diagnostics:
+  - hook: missingUe4ssCheck
+  - hook: ue4ssOwnershipCheck
+  - hook: ue4ssExternalInfoCheck
+  - hook: missingDmlCheck
+  - hook: logicModLoaderCheck
+  - hook: dmlExternalInfoCheck
+
+toolbarActions:
+  - id: open-ue4ss-settings
+    title: Open UE4SS Settings
+    priority: 200
+    target: { openFile: "${ue4ssRootPath}/UE4SS-settings.ini" }
+  - id: open-mods-txt
+    title: Open UE4SS mods.txt
+    priority: 201
+    target: { openFile: "${ue4ssModsPath}/mods.txt" }
+  - id: open-logicmods
+    title: Open LogicMods folder
+    priority: 202
+    target: { openFile: "${logicModsPath}" }
+  - id: open-pak-mods
+    title: Open ~mods folder
+    priority: 203
+    target: { openFile: "${pakModsPath}" }
+
+tests:
+  corpus: off
+  cases:
+    # 1. UE4SS framework
+    - name: "ue4ss-framework: dwmapi + ue4ss tree"
+      archive:
+        - dwmapi.dll
+        - ue4ss/UE4SS.dll
+        - ue4ss/UE4SS-settings.ini
+        - ue4ss/Mods/mods.txt
+      expect:
+        matched: ue4ss-framework
+        modType: mortalshell2-ue4ss-framework
+        plan:
+          - ${win64Path}/dwmapi.dll
+          - ${win64Path}/ue4ss/UE4SS.dll
+          - ${win64Path}/ue4ss/UE4SS-settings.ini
+          - ${win64Path}/ue4ss/Mods/mods.txt
+
+    # 2. UE4SS mod Scripts/
+    - name: "ue4ss-mod: ModName/Scripts/main.lua"
+      archive:
+        - CoolMod/Scripts/main.lua
+        - CoolMod/enabled.txt
+      expect:
+        matched: ue4ss-mod-scripts
+        modType: mortalshell2-ue4ss-mod
+        plan:
+          - ${ue4ssModsPath}/CoolMod/Scripts/main.lua
+          - ${ue4ssModsPath}/CoolMod/enabled.txt
+
+    # 3. UE4SS mod already under ue4ss/Mods
+    - name: "ue4ss-mod: rooted ue4ss/Mods/ModName"
+      archive:
+        - ue4ss/Mods/CoolMod/Scripts/main.lua
+        - ue4ss/Mods/CoolMod/enabled.txt
+      expect:
+        matched: ue4ss-mod-rooted
+        modType: mortalshell2-ue4ss-tree
+        plan:
+          - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
+          - ${ue4ssRootPath}/Mods/CoolMod/enabled.txt
+
+    # 4. LogicMod named triplet
+    - name: "logicmods: named triplet AutoPickup"
+      archive:
+        - AutoPickup/AutoPickup.pak
+        - AutoPickup/AutoPickup.ucas
+        - AutoPickup/AutoPickup.utoc
+        - AutoPickup/README.txt
+      expect:
+        matched: logicmods-named-triplet
+        modType: mortalshell2-logicmods
+        # copy form destinations are relative to the LogicMods modType root
+        plan:
+          - AutoPickup/AutoPickup.pak
+          - AutoPickup/AutoPickup.ucas
+          - AutoPickup/AutoPickup.utoc
+          - AutoPickup/README.txt
+
+    # 5. LogicMod already rooted under MortalShell2/.../LogicMods
+    - name: "root: LogicMods under MortalShell2 keeps structure"
+      archive:
+        - MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.pak
+        - MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.ucas
+        - MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.utoc
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.pak
+          - ${installPath}/MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.ucas
+          - ${installPath}/MortalShell2/Content/Paks/LogicMods/AutoPickup/AutoPickup.utoc
+
+    # 6. Standard PAK-only → ~mods
+    - name: "pak: standard _P patch to ~mods"
+      archive:
+        - MyTextures_P.pak
+        - MyTextures_P.ucas
+        - MyTextures_P.utoc
+      expect:
+        matched: pak
+        modType: mortalshell2-pak
+        plan:
+          - ${pakModsPath}/MyTextures_P.pak
+          - ${pakModsPath}/MyTextures_P.ucas
+          - ${pakModsPath}/MyTextures_P.utoc
+
+    # 7. DML — no local DmgModLoader; document with a standard pak case under ~mods
+    - name: "pak: no DmgModLoader locally — asset pak still routes to ~mods"
+      archive:
+        - SomeMod/SomeMod_P.pak
+        - SomeMod/readme.md
+      expect:
+        matched: pak
+        modType: mortalshell2-pak
+        plan:
+          - ${pakModsPath}/SomeMod_P.pak
+          - ${pakModsPath}/readme.md
+
+    # 8. ReShade archive
+    - name: "binaries: ReShade dxgi + shaders"
+      archive:
+        - dxgi.dll
+        - reshade.ini
+        - reshade-shaders/Shaders/test.fx
+      expect:
+        matched: binaries-addon
+        modType: mortalshell2-binaries
+        plan:
+          - ${win64Path}/dxgi.dll
+          - ${win64Path}/reshade.ini
+          - ${win64Path}/reshade-shaders/Shaders/test.fx
+
+    # 9. RenoDX add-on only
+    - name: "binaries: RenoDX addon64 only"
+      archive:
+        - renodx-ue-extended.addon64
+      expect:
+        matched: binaries-addon
+        modType: mortalshell2-binaries
+        plan:
+          - ${win64Path}/renodx-ue-extended.addon64
+
+    # 10. Fully game-root-relative
+    - name: "root: MortalShell2 + Engine segments"
+      archive:
+        - MortalShell2/Content/Paks/~mods/foo_P.pak
+        - Engine/Content/bar.uasset
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Content/Paks/~mods/foo_P.pak
+          - ${installPath}/Engine/Content/bar.uasset
+
+    # 11. Single unnecessary wrapper directory around UE4SS mod
+    - name: "ue4ss-mod: wrapper directory stripped"
+      archive:
+        - wrapper/CoolMod/Scripts/main.lua
+        - wrapper/CoolMod/enabled.txt
+      expect:
+        matched: ue4ss-mod-scripts
+        modType: mortalshell2-ue4ss-mod
+        plan:
+          - ${ue4ssModsPath}/CoolMod/Scripts/main.lua
+          - ${ue4ssModsPath}/CoolMod/enabled.txt
+
+    # 12. Ambiguous dwmapi + dxgi — valid coexistence; framework installer copies parent
+    - name: "ue4ss-framework: dwmapi+dxgi same folder (not a conflict)"
+      archive:
+        - dwmapi.dll
+        - dxgi.dll
+        - ue4ss/UE4SS.dll
+      expect:
+        matched: ue4ss-framework
+        modType: mortalshell2-ue4ss-framework
+        plan:
+          - ${win64Path}/dwmapi.dll
+          - ${win64Path}/dxgi.dll
+          - ${win64Path}/ue4ss/UE4SS.dll
+
+    # 13. Duplicated nesting avoided for ue4ss/Mods rooting
+    - name: "ue4ss-mod: Mods/ModName does not double-nest"
+      archive:
+        - Mods/CoolMod/Scripts/main.lua
+      expect:
+        matched: ue4ss-mod-mods-prefix
+        modType: mortalshell2-ue4ss-tree
+        plan:
+          - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
+
+    # Nexus mod 5 shape: runtime + stock Mods (incl. BPModLoaderMod) → Win64
+    - name: "ue4ss-framework: Nexus mod 5 pack with BPModLoaderMod"
+      archive:
+        - dwmapi.dll
+        - ue4ss/UE4SS.dll
+        - ue4ss/UE4SS-settings.ini
+        - ue4ss/Mods/mods.txt
+        - ue4ss/Mods/BPModLoaderMod/Scripts/main.lua
+        - ue4ss/Mods/BPModLoaderMod/load_order.txt
+        - ue4ss/Mods/ConsoleEnablerMod/Scripts/main.lua
+      expect:
+        matched: ue4ss-framework
+        modType: mortalshell2-ue4ss-framework
+        plan:
+          - ${win64Path}/dwmapi.dll
+          - ${win64Path}/ue4ss/UE4SS.dll
+          - ${win64Path}/ue4ss/UE4SS-settings.ini
+          - ${win64Path}/ue4ss/Mods/mods.txt
+          - ${win64Path}/ue4ss/Mods/BPModLoaderMod/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/BPModLoaderMod/load_order.txt
+          - ${win64Path}/ue4ss/Mods/ConsoleEnablerMod/Scripts/main.lua
+
+    # 14. Documentation surrounding LogicMod payload
+    - name: "logicmods: docs around named triplet"
+      archive:
+        - AutoPickup/AutoPickup.pak
+        - AutoPickup/AutoPickup.ucas
+        - AutoPickup/AutoPickup.utoc
+        - AutoPickup/LICENSE.txt
+        - AutoPickup/preview.png
+      expect:
+        matched: logicmods-named-triplet
+        modType: mortalshell2-logicmods
+        plan:
+          - AutoPickup/AutoPickup.pak
+          - AutoPickup/AutoPickup.ucas
+          - AutoPickup/AutoPickup.utoc
+          - AutoPickup/LICENSE.txt
+          - AutoPickup/preview.png
+
+    # Extra: LogicMods path without MortalShell2 prefix
+    - name: "logicmods-folder: LogicMods/ModName triplet"
+      archive:
+        - LogicMods/AutoPickup/AutoPickup.pak
+        - LogicMods/AutoPickup/AutoPickup.ucas
+        - LogicMods/AutoPickup/AutoPickup.utoc
+      expect:
+        matched: logicmods-folder
+        modType: mortalshell2-logicmods-tree
+        plan:
+          - ${paksPath}/LogicMods/AutoPickup/AutoPickup.pak
+          - ${paksPath}/LogicMods/AutoPickup/AutoPickup.ucas
+          - ${paksPath}/LogicMods/AutoPickup/AutoPickup.utoc
+
+    - name: "dml-framework: flat dml + dmlcore_P to Content/Paks/dml"
+      archive:
+        - dml.pak
+        - dml.ucas
+        - dml.utoc
+        - dmlcore_P.pak
+        - dmlcore_P.ucas
+        - dmlcore_P.utoc
+      expect:
+        matched: dml-framework
+        modType: mortalshell2-dml-framework
+        plan:
+          - ${dmlPath}/dml.pak
+          - ${dmlPath}/dml.ucas
+          - ${dmlPath}/dml.utoc
+          - ${dmlPath}/dmlcore_P.pak
+          - ${dmlPath}/dmlcore_P.ucas
+          - ${dmlPath}/dmlcore_P.utoc
+
+    - name: "dml-framework-rooted: dml/ folder under Content/Paks"
+      archive:
+        - dml/dml.pak
+        - dml/dml.ucas
+        - dml/dml.utoc
+      expect:
+        matched: dml-framework-rooted
+        modType: mortalshell2-dml-tree
+        plan:
+          - ${paksPath}/dml/dml.pak
+          - ${paksPath}/dml/dml.ucas
+          - ${paksPath}/dml/dml.utoc

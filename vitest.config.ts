@@ -22,10 +22,12 @@ const vortexApiMock = resolve(import.meta.dirname, 'gdl/src/runtime/testing/vort
 export default defineConfig({
   test: {
     // The three real suites only — not installers.gen.ts (a rules export with no tests).
-    // Plus repo tooling under tools/ (named explicitly, NOT a broad glob: gdl/ is a separate
-    // repo with its own suites and must not be swept in here).
     include: [
       'games/*/.gdl-out/{tests,templates,lifecycle}.gen.ts',
+      // Optional per-game unit tests (e.g. ownership helpers) beside hooks.ts.
+      'games/*/src/**/*.test.ts',
+      // Plus repo tooling under tools/ (named explicitly, NOT a broad glob: gdl/ is a separate
+      // repo with its own suites and must not be swept in here).
       'tools/*.test.mjs',
     ],
     // A skeleton game (no `tests.cases`) generates no tests.gen.ts; don't fail then.
