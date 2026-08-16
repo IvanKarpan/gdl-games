@@ -123,6 +123,13 @@ modTypes:
       name: "Binaries add-on (ReShade / RenoDX)",
       path: "${win64Path}",
     }
+  # ReShade preset only (no bundled runtime) — Nexus mod 9 shape; the hook suggests
+  # installing ReShade from reshade.app when no runtime is present in Binaries/Win64.
+  - {
+      id: mortalshell2-reshade-preset,
+      name: "ReShade preset",
+      path: "${win64Path}",
+    }
   - {
       id: mortalshell2-root,
       name: "Root (game folder)",
@@ -288,6 +295,27 @@ installers:
     copy: { stripCommonRoot: false }
     modType: mortalshell2-logicmods
 
+  # --- 27: ReShade preset shipped as a flat *reshade*.ini at the archive root ---
+  # Nexus mod 9 (Vibrant Reshade - Mortal Shell II) is exactly two files: the preset
+  # .ini plus its ReadMe. Top-level pattern only — INIs inside game trees stay with
+  # the root/content-folder installers, and archives carrying IoStore assets or
+  # framework dlls keep their dedicated routing (see the "guard: arbitrary ini" case).
+  # ReShade itself is NOT bundled; afterDeploy suggests installing it from
+  # reshade.app when no runtime exists under Binaries/Win64.
+  - id: reshade-preset
+    priority: 27
+    when: { hasFile: "*reshade*.ini" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/*.{pak,ucas,utoc}" }
+        - { hasFile: "**/{dxgi.dll,dwmapi.dll,UE4SS.dll}" }
+    anchor: "*reshade*.ini"
+    take: parent
+    placeAt: "${win64Path}"
+    modType: mortalshell2-reshade-preset
+
   # --- 10: game-root-relative (MortalShell2/ or Engine/) ---
   - id: root
     priority: 10
@@ -334,6 +362,12 @@ installers:
         - { hasFile: "Engine/**" }
         - { hasFile: "Content/**" }
         - { hasFile: "Binaries/**" }
+        # Nexus mod 8 (Witcher Remapper for MS2) is a standalone Electron remapping
+        # utility — resources/app.asar plus chrome_*.pak/locales/*.pak are Chromium
+        # resources, NOT game IoStore assets. It performs its own Apply/Uninstall
+        # flow and is intentionally unmatched here (no tests.cases entry: the pinned
+        # harness throws when no installer matches; verified via corpus accounting).
+        - { hasFile: "**/*.asar" }
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll}" }
     anchor: "**/*.{pak,utoc}"
     take: parent
@@ -800,3 +834,28 @@ tests:
           - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPresets.txt
           - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/Scripts/main.lua
           - ${installPath}/README.txt
+
+    # Nexus mod 9 (Vibrant Reshade - Mortal Shell II) — preset-only package: a flat
+    # *reshade*.ini plus its ReadMe at the archive root → Binaries/Win64. ReShade
+    # itself is not bundled; afterDeploy suggests installing it from reshade.app.
+    - name: "reshade-preset: Nexus mod 9 Vibrant Reshade preset"
+      archive:
+        - Vibrant Reshade - Mortal Shell II ReadMe.txt
+        - Vibrant Reshade - Mortal Shell II.ini
+      expect:
+        matched: reshade-preset
+        modType: mortalshell2-reshade-preset
+        plan:
+          - ${win64Path}/Vibrant Reshade - Mortal Shell II ReadMe.txt
+          - ${win64Path}/Vibrant Reshade - Mortal Shell II.ini
+
+    # Guard (Package 02): an INI inside a game tree is project data, not a ReShade
+    # preset — the *reshade*.ini pattern is top-level only.
+    - name: "guard: arbitrary ini in Config/ is not treated as ReShade preset"
+      archive:
+        - Config/Unrelated.ini
+      expect:
+        matched: content-folder
+        modType: mortalshell2-contentfolder
+        plan:
+          - ${gamePath}/Config/Unrelated.ini
