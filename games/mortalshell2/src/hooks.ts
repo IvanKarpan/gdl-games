@@ -638,17 +638,33 @@ export async function hasReShadePresetOnDisk(discoveryPath: string): Promise<boo
   }
 }
 
-/** True when Content/Paks/LogicMods has real mod paks (not just Vortex metadata). */
-export async function hasLogicModPaksOnDisk(discoveryPath: string): Promise<boolean> {
-  const dir = join(discoveryPath, 'MortalShell2', 'Content', 'Paks', 'LogicMods');
+async function treeContainsModPayload(dir: string): Promise<boolean> {
+  let entries;
   try {
-    const entries = await readdir(dir);
-    return entries.some(
-      (e) => /\.(pak|ucas|utoc)$/i.test(e) && !/^vortex\./i.test(e),
-    );
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return false;
   }
+
+  for (const entry of entries) {
+    if (entry.name.toLowerCase().startsWith('vortex.')) continue;
+
+    const child = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (await treeContainsModPayload(child)) return true;
+      continue;
+    }
+
+    if (/\.(pak|ucas|utoc)$/i.test(entry.name)) return true;
+  }
+
+  return false;
+}
+
+/** True when Content/Paks/LogicMods contains a real payload at any depth. */
+export async function hasLogicModPaksOnDisk(discoveryPath: string): Promise<boolean> {
+  const dir = join(discoveryPath, 'MortalShell2', 'Content', 'Paks', 'LogicMods');
+  return treeContainsModPayload(dir);
 }
 
 async function logicModsRequireLoader(api: types.IExtensionApi): Promise<boolean> {
