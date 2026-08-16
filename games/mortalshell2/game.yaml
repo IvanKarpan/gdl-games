@@ -444,6 +444,10 @@ toolbarActions:
     target: { openFile: "${pakModsPath}" }
 
 tests:
+  # Beta Steam (4711740) corpus was used for routing discovery on 2026-08-16; the
+  # durable archive-shape regressions live in the deterministic cases below.
+  # Retail corpus must be re-reconciled after release — this is not final retail
+  # readiness, and `off` stays committed until that reconciliation happens.
   corpus: off
   cases:
     # 2. UE4SS mod Scripts/
