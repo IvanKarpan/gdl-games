@@ -610,21 +610,37 @@ export async function regenerateModsTxt(ctx: {
   await fs.writeFileAsync(join(modsDir, 'mods.txt'), `${lines.join('\n')}\n`);
 }
 
+/** Standard local ReShade proxy module names (installed under graphics-API filenames). */
+const RESHADE_PROXY_DLLS = new Set([
+  'd3d9.dll',
+  'd3d10.dll',
+  'd3d11.dll',
+  'd3d12.dll',
+  'dxgi.dll',
+  'ddraw.dll',
+  'opengl32.dll',
+]);
+
 /**
- * A normal per-game ReShade install places proxy modules under graphics-API names
- * (dxgi.dll, d3d11.dll, ...) beside the selected exe and maintains a per-game
- * ReShade.ini. The proxy file names are not ReShade-specific — this game's own
- * mods ship their own dxgi.dll (Nexus mod 2) — so only ReShade.ini counts as
- * proof of a normal install: no broad DLL ownership heuristics, and preset .inis
- * never count.
+ * A valid local ReShade runtime requires BOTH the per-game ReShade.ini AND at least
+ * one standard proxy module beside the shipping exe. Either marker alone is not
+ * proof: a stale ReShade.ini can survive a broken/uninstalled runtime, and MS2 Nexus
+ * mod 2 ships its own dxgi.dll that is NOT ReShade's. Any preset .ini (name merely
+ * containing "reshade") never counts as the runtime config — only an exact
+ * ReShade.ini does. File names only, case-insensitive; no PE inspection.
  */
 export async function hasReShadeRuntime(discoveryPath: string): Promise<boolean> {
+  let entries: string[];
   try {
-    const entries = await readdir(win64(discoveryPath));
-    return entries.some((e) => e.toLowerCase() === 'reshade.ini');
+    entries = await readdir(win64(discoveryPath));
   } catch {
     return false;
   }
+
+  const names = new Set(entries.map((e) => e.toLowerCase()));
+  return (
+    names.has('reshade.ini') && [...names].some((n) => RESHADE_PROXY_DLLS.has(n))
+  );
 }
 
 /**
