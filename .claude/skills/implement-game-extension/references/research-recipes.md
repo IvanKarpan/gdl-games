@@ -268,7 +268,7 @@ Verified 2026-07-25. Keep this in sync — `tools/audit-docs.mjs` checks that ev
 | Closest match | Template | Notes |
 |---|---|---|
 | UE5 + UE4SS, **with hooks** | `games/subnautica2` | `src/hooks.ts` + `discovery.version: { hook }` and `events.did-deploy` (mods.txt regen). No ReShade/native-dll rules. |
-| UE5 + UE4SS + ReShade + dual Steam AppID | `games/mortalshell2` | Optional `build.mjs` wraps dual Steam AppIDs; `diagnostics:` for Ultra+/manual UE4SS + DmgModLoader awareness (ignore DirectML); LogicMods + `~mods`; no pre-install frameworks. |
+| UE5 + UE4SS + DML + ReShade, **with hooks** | `games/mortalshell2` | Open-Beta-tested UE5 layout with `~mods`, LogicMods, UE4SS/DmgModLoader awareness, ReShade/native binary routing, version/deploy hooks; retail layout remains unverified. |
 | UE5 pak + ReShade + loose DLL | `games/solarpunk` | The fullest UE5 set: `pak`, `pak-iostore`, `pak-alt`, `logicmods`, `ue4ss-injector`, `ue4ss-lua` + `-enabled` + `-bare`, `reshade`, `native-dll`, `root`, `content-folder`. |
 | UE5 **+ config/media mods** | `games/halocampaignevolved` | Solarpunk's set **plus** `config-ini` (`${appDataLocal}` user config) and `menu-movie` (asset replacement). Use this when mods aren't all paks — see SKILL.md Step 4. |
 | UE5, **unreleased** game | `games/outward2` | Shows the `# UNVERIFIED` convention for an exe not yet confirmed against a shipping build, and a deferred `nexus:` block. |
