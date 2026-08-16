@@ -610,14 +610,18 @@ export async function regenerateModsTxt(ctx: {
   await fs.writeFileAsync(join(modsDir, 'mods.txt'), `${lines.join('\n')}\n`);
 }
 
-/** ReShade runtime marker beside the shipping exe (ReShade32.dll / ReShade64.dll). */
-const RESHADE_RUNTIME_DLL = /^reshade(?:32|64)?\.dll$/i;
-
-/** True when a ReShade runtime DLL is present under MortalShell2/Binaries/Win64. */
+/**
+ * A normal per-game ReShade install places proxy modules under graphics-API names
+ * (dxgi.dll, d3d11.dll, ...) beside the selected exe and maintains a per-game
+ * ReShade.ini. The proxy file names are not ReShade-specific — this game's own
+ * mods ship their own dxgi.dll (Nexus mod 2) — so only ReShade.ini counts as
+ * proof of a normal install: no broad DLL ownership heuristics, and preset .inis
+ * never count.
+ */
 export async function hasReShadeRuntime(discoveryPath: string): Promise<boolean> {
   try {
     const entries = await readdir(win64(discoveryPath));
-    return entries.some((e) => RESHADE_RUNTIME_DLL.test(e));
+    return entries.some((e) => e.toLowerCase() === 'reshade.ini');
   } catch {
     return false;
   }
@@ -821,9 +825,10 @@ export async function notifyMissingFrameworks(
 
 /**
  * ReShade preset mods ship only the preset .ini. When one is deployed/enabled and
- * no ReShade runtime DLL sits beside the shipping exe, point at the official site
- * so the user installs the latest ReShade for this game. Dismissed again once the
- * runtime appears or no preset remains (mirrors notifyMissingFrameworks).
+ * no normal ReShade install is detected beside the shipping exe, point at the
+ * official site so the user installs the latest ReShade for this game. Dismissed
+ * again once the runtime appears or no preset remains (mirrors
+ * notifyMissingFrameworks).
  */
 export async function notifyMissingReShade(api: types.IExtensionApi): Promise<void> {
   if (getActiveGameId(api) !== GAME_ID) return;
