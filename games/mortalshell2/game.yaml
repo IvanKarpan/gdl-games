@@ -265,24 +265,23 @@ installers:
     placeAt: "${paksPath}"
     modType: mortalshell2-logicmods-tree
 
-  # --- 26: LogicMod triplet in a named folder (no _P suffix) ---
-  # Example: AutoPickup/AutoPickup.pak(+ucas/utoc) → LogicMods/AutoPickup/
-  # copy (no strip) preserves the named folder under the LogicMods modType root.
-  # Single-anchor take:parent would flatten away the folder name.
-  - id: logicmods-named-triplet
+  # --- 26: LogicMod payload shipped as a bare triplet at the archive root ---
+  # Nexus mod 6 (AutoPickup) ships exactly AutoPickup.pak + .ucas + .utoc with no
+  # wrapper folder — that flat-root placement is the corpus-proven signature.
+  # A named-folder triplet (e.g. OrdinaryAsset/OrdinaryAsset.*) has NO such
+  # evidence and falls through to the ordinary pak installer (~mods) — see the
+  # "guard: arbitrary non-_P IoStore triplet" case. _P-named paks are UE4 named
+  # asset paks (asset mods, stay in ~mods); framework dlls belong to their own rules.
+  - id: logicmods-root-triplet
     priority: 26
     when:
       all:
-        - { hasFile: "**/*.pak" }
-        - { hasFile: "**/*.ucas" }
-        - { hasFile: "**/*.utoc" }
+        - { hasFile: "*.pak" }
+        - { hasFile: "*.ucas" }
+        - { hasFile: "*.utoc" }
     unless:
       any:
-        - { hasFile: "**/*_P.pak" }
-        - { hasFile: "**/*_p.pak" }
-        - { hasFile: "**/LogicMods/**" }
-        - { hasFile: "**/Content/Paks/**" }
-        - { hasFile: "**/~mods/**" }
+        - { hasFile: "*_P.pak" }
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
         - { hasFile: "**/{dwmapi.dll,dxgi.dll,UE4SS.dll}" }
@@ -413,22 +412,6 @@ toolbarActions:
 tests:
   corpus: off
   cases:
-    # 1. UE4SS framework
-    - name: "ue4ss-framework: dwmapi + ue4ss tree"
-      archive:
-        - dwmapi.dll
-        - ue4ss/UE4SS.dll
-        - ue4ss/UE4SS-settings.ini
-        - ue4ss/Mods/mods.txt
-      expect:
-        matched: ue4ss-framework
-        modType: mortalshell2-ue4ss-framework
-        plan:
-          - ${win64Path}/dwmapi.dll
-          - ${win64Path}/ue4ss/UE4SS.dll
-          - ${win64Path}/ue4ss/UE4SS-settings.ini
-          - ${win64Path}/ue4ss/Mods/mods.txt
-
     # 2. UE4SS mod Scripts/
     - name: "ue4ss-mod: ModName/Scripts/main.lua"
       archive:
@@ -453,22 +436,24 @@ tests:
           - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
           - ${ue4ssRootPath}/Mods/CoolMod/enabled.txt
 
-    # 4. LogicMod named triplet
-    - name: "logicmods: named triplet AutoPickup"
+    # 4. Negative guard — named-folder triplet WITHOUT a LogicMods/ segment is an
+    # ordinary asset set: it falls to ~mods (take-parent flattens the folder into
+    # ~mods, same as the SomeMod_P case). No corpus mod ships this shape; Nexus
+    # mod 6 (the only LogicMod) ships flat at the archive root instead.
+    - name: "guard: named-folder triplet without LogicMods/ goes to ~mods"
       archive:
         - AutoPickup/AutoPickup.pak
         - AutoPickup/AutoPickup.ucas
         - AutoPickup/AutoPickup.utoc
         - AutoPickup/README.txt
       expect:
-        matched: logicmods-named-triplet
-        modType: mortalshell2-logicmods
-        # copy form destinations are relative to the LogicMods modType root
+        matched: pak
+        modType: mortalshell2-pak
         plan:
-          - AutoPickup/AutoPickup.pak
-          - AutoPickup/AutoPickup.ucas
-          - AutoPickup/AutoPickup.utoc
-          - AutoPickup/README.txt
+          - ${pakModsPath}/AutoPickup.pak
+          - ${pakModsPath}/AutoPickup.ucas
+          - ${pakModsPath}/AutoPickup.utoc
+          - ${pakModsPath}/README.txt
 
     # 5. LogicMod already rooted under MortalShell2/.../LogicMods
     - name: "root: LogicMods under MortalShell2 keeps structure"
@@ -582,45 +567,54 @@ tests:
         plan:
           - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
 
-    # Nexus mod 5 shape: runtime + stock Mods (incl. BPModLoaderMod) → Win64
-    - name: "ue4ss-framework: Nexus mod 5 pack with BPModLoaderMod"
+    # Nexus mod 5 (UE4SS for MortalShell2, full pack listing) — runtime + stock Mods
+    # incl. BPModLoaderMod → Binaries/Win64, whole tree intact
+    - name: "ue4ss-framework: Nexus mod 5 exact pack"
       archive:
         - dwmapi.dll
-        - ue4ss/UE4SS.dll
-        - ue4ss/UE4SS-settings.ini
-        - ue4ss/Mods/mods.txt
+        - ue4ss/LICENSE
+        - ue4ss/Mods/BPML_GenericFunctions/Scripts/main.lua
         - ue4ss/Mods/BPModLoaderMod/Scripts/main.lua
         - ue4ss/Mods/BPModLoaderMod/load_order.txt
+        - ue4ss/Mods/CheatManagerEnablerMod/Scripts/main.lua
+        - ue4ss/Mods/ConsoleCommandsMod/Scripts/dump_object.lua
+        - ue4ss/Mods/ConsoleCommandsMod/Scripts/main.lua
+        - ue4ss/Mods/ConsoleCommandsMod/Scripts/set.lua
+        - ue4ss/Mods/ConsoleCommandsMod/Scripts/summon_unloaded_assets.lua
         - ue4ss/Mods/ConsoleEnablerMod/Scripts/main.lua
+        - ue4ss/Mods/Keybinds/Scripts/main.lua
+        - ue4ss/Mods/LineTraceMod/Scripts/main.lua
+        - ue4ss/Mods/SplitScreenMod/Scripts/main.lua
+        - ue4ss/Mods/mods.json
+        - ue4ss/Mods/mods.txt
+        - ue4ss/Mods/shared/UEHelpers/UEHelpers.lua
+        - ue4ss/UE4SS-settings.ini
+        - ue4ss/UE4SS.dll
+        - ue4ss/UE4SS_Signatures/StaticConstructObject.lua
       expect:
         matched: ue4ss-framework
         modType: mortalshell2-ue4ss-framework
         plan:
           - ${win64Path}/dwmapi.dll
-          - ${win64Path}/ue4ss/UE4SS.dll
-          - ${win64Path}/ue4ss/UE4SS-settings.ini
-          - ${win64Path}/ue4ss/Mods/mods.txt
+          - ${win64Path}/ue4ss/LICENSE
+          - ${win64Path}/ue4ss/Mods/BPML_GenericFunctions/Scripts/main.lua
           - ${win64Path}/ue4ss/Mods/BPModLoaderMod/Scripts/main.lua
           - ${win64Path}/ue4ss/Mods/BPModLoaderMod/load_order.txt
+          - ${win64Path}/ue4ss/Mods/CheatManagerEnablerMod/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/ConsoleCommandsMod/Scripts/dump_object.lua
+          - ${win64Path}/ue4ss/Mods/ConsoleCommandsMod/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/ConsoleCommandsMod/Scripts/set.lua
+          - ${win64Path}/ue4ss/Mods/ConsoleCommandsMod/Scripts/summon_unloaded_assets.lua
           - ${win64Path}/ue4ss/Mods/ConsoleEnablerMod/Scripts/main.lua
-
-    # 14. Documentation surrounding LogicMod payload
-    - name: "logicmods: docs around named triplet"
-      archive:
-        - AutoPickup/AutoPickup.pak
-        - AutoPickup/AutoPickup.ucas
-        - AutoPickup/AutoPickup.utoc
-        - AutoPickup/LICENSE.txt
-        - AutoPickup/preview.png
-      expect:
-        matched: logicmods-named-triplet
-        modType: mortalshell2-logicmods
-        plan:
-          - AutoPickup/AutoPickup.pak
-          - AutoPickup/AutoPickup.ucas
-          - AutoPickup/AutoPickup.utoc
-          - AutoPickup/LICENSE.txt
-          - AutoPickup/preview.png
+          - ${win64Path}/ue4ss/Mods/Keybinds/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/LineTraceMod/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/SplitScreenMod/Scripts/main.lua
+          - ${win64Path}/ue4ss/Mods/mods.json
+          - ${win64Path}/ue4ss/Mods/mods.txt
+          - ${win64Path}/ue4ss/Mods/shared/UEHelpers/UEHelpers.lua
+          - ${win64Path}/ue4ss/UE4SS-settings.ini
+          - ${win64Path}/ue4ss/UE4SS.dll
+          - ${win64Path}/ue4ss/UE4SS_Signatures/StaticConstructObject.lua
 
     # Extra: LogicMods path without MortalShell2 prefix
     - name: "logicmods-folder: LogicMods/ModName triplet"
@@ -655,11 +649,15 @@ tests:
           - ${dmlPath}/dmlcore_P.ucas
           - ${dmlPath}/dmlcore_P.utoc
 
-    - name: "dml-framework-rooted: dml/ folder under Content/Paks"
+    # Nexus mod 4 (DmgModLoader v0.5, full pack listing) — dml/ subtree stays intact under Content/Paks
+    - name: "dml-framework-rooted: Nexus mod 4 exact pack"
       archive:
         - dml/dml.pak
         - dml/dml.ucas
         - dml/dml.utoc
+        - dml/dmlcore_P.pak
+        - dml/dmlcore_P.ucas
+        - dml/dmlcore_P.utoc
       expect:
         matched: dml-framework-rooted
         modType: mortalshell2-dml-tree
@@ -667,3 +665,138 @@ tests:
           - ${paksPath}/dml/dml.pak
           - ${paksPath}/dml/dml.ucas
           - ${paksPath}/dml/dml.utoc
+          - ${paksPath}/dml/dmlcore_P.pak
+          - ${paksPath}/dml/dmlcore_P.ucas
+          - ${paksPath}/dml/dmlcore_P.utoc
+
+    # Guard (Package 02): a named-folder IoStore triplet with no LogicMods/ segment,
+    # no _P suffix and no framework marker is an ordinary asset set — it must fall
+    # through to the pak installer (~mods), not be claimed as a LogicMod.
+    - name: "guard: arbitrary non-_P IoStore triplet is not a LogicMod"
+      archive:
+        - OrdinaryAsset/OrdinaryAsset.pak
+        - OrdinaryAsset/OrdinaryAsset.ucas
+        - OrdinaryAsset/OrdinaryAsset.utoc
+      expect:
+        matched: pak
+        modType: mortalshell2-pak
+        plan:
+          - ${pakModsPath}/OrdinaryAsset.pak
+          - ${pakModsPath}/OrdinaryAsset.ucas
+          - ${pakModsPath}/OrdinaryAsset.utoc
+
+    # --- Current beta catalogue (Nexus mortalshell2, listings captured 2026-08-16) ---
+
+    # Nexus mod 6 (AutoPickup) — the only LogicMod in the corpus: bare triplet at
+    # archive root → Content/Paks/LogicMods. copy-form destinations are relative to
+    # the LogicMods modType root.
+    - name: "logicmods-root-triplet: Nexus mod 6 AutoPickup flat triplet"
+      archive:
+        - AutoPickup.pak
+        - AutoPickup.ucas
+        - AutoPickup.utoc
+      expect:
+        matched: logicmods-root-triplet
+        modType: mortalshell2-logicmods
+        plan:
+          - AutoPickup.pak
+          - AutoPickup.ucas
+          - AutoPickup.utoc
+
+    # Nexus mod 2 (No-HUD-No-Effects / ShaderToggler v0.2) — install-root-relative;
+    # the whole tree incl. top-level docs must stay intact under the install root.
+    - name: "root: Nexus mod 2 ShaderToggler payload"
+      archive:
+        - LICENSE
+        - MortalShell2/Binaries/Win64/ShaderToggler.addon64
+        - MortalShell2/Binaries/Win64/ShaderToggler.ini
+        - MortalShell2/Binaries/Win64/dxgi.dll
+        - README.md
+        - ReadMe.txt
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/LICENSE
+          - ${installPath}/MortalShell2/Binaries/Win64/ShaderToggler.addon64
+          - ${installPath}/MortalShell2/Binaries/Win64/ShaderToggler.ini
+          - ${installPath}/MortalShell2/Binaries/Win64/dxgi.dll
+          - ${installPath}/README.md
+          - ${installPath}/ReadMe.txt
+
+    # Nexus mod 3 (Auto Gold Pickup) — UE4SS Lua mod tree already game-root-relative;
+    # narrower ue4ss-mod rules are excluded by MortalShell2/**, so the sibling
+    # signature file and docs survive intact.
+    - name: "root: Nexus mod 3 AutoGoldPickup keeps siblings"
+      archive:
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/Scripts/main.lua
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/enabled.txt
+        - MortalShell2/Binaries/Win64/ue4ss/UE4SS_Signatures/StaticConstructObject.lua
+        - README.txt
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/Scripts/main.lua
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/enabled.txt
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/UE4SS_Signatures/StaticConstructObject.lua
+          - ${installPath}/README.txt
+
+    # Nexus mod 7 (Health and Resolve Numbers / NumericVitals) — same all-in-one shape.
+    - name: "root: Nexus mod 7 NumericVitals keeps siblings"
+      archive:
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/Scripts/config.lua
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/Scripts/main.lua
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/enabled.txt
+        - README.txt
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/Scripts/config.lua
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/Scripts/main.lua
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/NumericVitals/enabled.txt
+          - ${installPath}/README.txt
+
+    # Nexus mod 10 (FOV / ultrawide HUD and more) — ReShade-family payload; the whole
+    # tree (dll, addon64, reshade-shaders/) must land under Binaries/Win64 intact.
+    - name: "binaries-addon: Nexus mod 10 reshade-shaders + addon64"
+      archive:
+        - MortalShell2Core.dll
+        - MortalShell2UI.addon64
+        - Readme_1st.txt
+        - reshade-shaders/Shaders/OSD.fx
+        - reshade-shaders/Textures/FontAtlas.png
+        - reshade-shaders/Textures/font.png
+        - reshade-shaders/Textures/lut.png
+      expect:
+        matched: binaries-addon
+        modType: mortalshell2-binaries
+        plan:
+          - ${win64Path}/MortalShell2Core.dll
+          - ${win64Path}/MortalShell2UI.addon64
+          - ${win64Path}/Readme_1st.txt
+          - ${win64Path}/reshade-shaders/Shaders/OSD.fx
+          - ${win64Path}/reshade-shaders/Textures/FontAtlas.png
+          - ${win64Path}/reshade-shaders/Textures/font.png
+          - ${win64Path}/reshade-shaders/Textures/lut.png
+
+    # Nexus mod 11 (DarkSky) — UE4SS mod tree with AHK panel, game-root-relative.
+    - name: "root: Nexus mod 11 DarkSky keeps siblings"
+      archive:
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSky.ico
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPanel.ahk
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPanel.html
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPresets.txt
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/Scripts/main.lua
+        - README.txt
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSky.ico
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPanel.ahk
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPanel.html
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/DarkSkyPresets.txt
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/DarkSkyMod/Scripts/main.lua
+          - ${installPath}/README.txt
