@@ -373,7 +373,7 @@ setup:
     - ${ue4ssModsPath}
 
 events:
-  # mods.txt merge + toast when LogicMods/UE4SS mods need frameworks (Health UI alone is easy to miss).
+  # Reconcile mods.txt and surface framework guidance after deployment.
   did-deploy: { hook: afterDeploy }
 
 # TODO(gdl): Re-enable/rework diagnostics once GDL's generated lifecycle
