@@ -273,22 +273,22 @@ installers:
     modType: mortalshell2-logicmods-tree
 
   # --- 26: LogicMod payload shipped as a bare triplet at the archive root ---
-  # Nexus mod 6 (AutoPickup) ships exactly AutoPickup.pak + .ucas + .utoc with no
-  # wrapper folder — that flat-root placement is the corpus-proven signature.
-  # A named-folder triplet (e.g. OrdinaryAsset/OrdinaryAsset.*) has NO such
-  # evidence and falls through to the ordinary pak installer (~mods) — see the
-  # "guard: arbitrary non-_P IoStore triplet" case. _P-named paks are UE4 named
-  # asset paks (asset mods, stay in ~mods); framework dlls belong to their own rules.
+  # Nexus mod 6 (AutoPickup) is the ONLY corpus-proven LogicMod and ships exactly
+  # AutoPickup.pak + .ucas + .utoc with no wrapper folder — so this rule matches
+  # that exact flat-root signature, not any non-_P triplet. Arbitrary triplets
+  # (flat OrdinaryAsset.* or a named-folder AutoPickup/*) have no such evidence
+  # and fall through to the ordinary pak installer (~mods) — see the "guard:
+  # arbitrary flat-root IoStore triplet" and "guard: named-folder triplet without
+  # LogicMods/" cases. Game-tree/framework archives keep their dedicated routing.
   - id: logicmods-root-triplet
     priority: 26
     when:
       all:
-        - { hasFile: "*.pak" }
-        - { hasFile: "*.ucas" }
-        - { hasFile: "*.utoc" }
+        - { hasFile: "AutoPickup.pak" }
+        - { hasFile: "AutoPickup.ucas" }
+        - { hasFile: "AutoPickup.utoc" }
     unless:
       any:
-        - { hasFile: "*_P.pak" }
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
         - { hasFile: "**/{dwmapi.dll,dxgi.dll,UE4SS.dll}" }
@@ -715,6 +715,22 @@ tests:
         - OrdinaryAsset/OrdinaryAsset.pak
         - OrdinaryAsset/OrdinaryAsset.ucas
         - OrdinaryAsset/OrdinaryAsset.utoc
+      expect:
+        matched: pak
+        modType: mortalshell2-pak
+        plan:
+          - ${pakModsPath}/OrdinaryAsset.pak
+          - ${pakModsPath}/OrdinaryAsset.ucas
+          - ${pakModsPath}/OrdinaryAsset.utoc
+
+    # Guard (Package 02 review): an arbitrary FLAT ROOT IoStore triplet is still an
+    # ordinary asset set — only mod 6's exact AutoPickup.* signature may claim a
+    # flat-root triplet as a LogicMod.
+    - name: "guard: arbitrary flat-root IoStore triplet is not a LogicMod"
+      archive:
+        - OrdinaryAsset.pak
+        - OrdinaryAsset.ucas
+        - OrdinaryAsset.utoc
       expect:
         matched: pak
         modType: mortalshell2-pak
