@@ -4,7 +4,7 @@
  * Archive routing and Steam discovery live in game.yaml. Hooks cover:
  * - UE4SS / Ultra+ / manual ownership assessment + diagnostics
  * - DmgModLoader (DML) awareness (Content/Paks/dml) — never confuse with DirectML
- * - ReShade preset mods: suggest installing ReShade from reshade.app when the
+ * - ReShade preset mods: suggest installing ReShade from reshade.me when the
  *   runtime is absent from Binaries/Win64 (presets ship the .ini only)
  * - idempotent mods.txt merge
  *
@@ -28,7 +28,7 @@ export const UE4SS_NEXUS_PAGE =
   `https://www.nexusmods.com/mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}`;
 
 /** Official ReShade site — preset mods need the runtime, which presets do not ship. */
-export const RESHADE_SITE = 'https://reshade.app/';
+export const RESHADE_SITE = 'https://reshade.me/';
 
 const BPMOD_LOADER_DIR = 'BPModLoaderMod';
 
@@ -855,7 +855,7 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
     noDismiss: true,
     actions: [
       {
-        title: 'Open reshade.app',
+        title: 'Open reshade.me',
         action: (dismiss: () => void) => {
           void util.opn(RESHADE_SITE).finally(() => dismiss());
         },

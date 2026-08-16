@@ -124,7 +124,7 @@ modTypes:
       path: "${win64Path}",
     }
   # ReShade preset only (no bundled runtime) — Nexus mod 9 shape; the hook suggests
-  # installing ReShade from reshade.app when no runtime is present in Binaries/Win64.
+  # installing ReShade from reshade.me when no runtime is present in Binaries/Win64.
   - {
       id: mortalshell2-reshade-preset,
       name: "ReShade preset",
@@ -301,7 +301,7 @@ installers:
   # the root/content-folder installers, and archives carrying IoStore assets or
   # framework dlls keep their dedicated routing (see the "guard: arbitrary ini" case).
   # ReShade itself is NOT bundled; afterDeploy suggests installing it from
-  # reshade.app when no runtime exists under Binaries/Win64.
+  # reshade.me when no runtime exists beside the shipping exe.
   - id: reshade-preset
     priority: 27
     when: { hasFile: "*reshade*.ini" }
@@ -857,7 +857,7 @@ tests:
 
     # Nexus mod 9 (Vibrant Reshade - Mortal Shell II) — preset-only package: a flat
     # *reshade*.ini plus its ReadMe at the archive root → Binaries/Win64. ReShade
-    # itself is not bundled; afterDeploy suggests installing it from reshade.app.
+    # itself is not bundled; afterDeploy suggests installing it from reshade.me.
     - name: "reshade-preset: Nexus mod 9 Vibrant Reshade preset"
       archive:
         - Vibrant Reshade - Mortal Shell II ReadMe.txt
