@@ -1,8 +1,7 @@
 /**
  * Mortal Shell II — TypeScript hooks (GDL escape hatches).
  *
- * Archive routing lives in game.yaml. Hooks cover:
- * - dual Steam AppID discovery (injected by build.mjs — GDL allows one stores.steam)
+ * Archive routing and Steam discovery live in game.yaml. Hooks cover:
  * - UE4SS / Ultra+ / manual ownership assessment + diagnostics
  * - DmgModLoader (DML) awareness (Content/Paks/dml) — never confuse with DirectML
  * - idempotent mods.txt merge
@@ -14,11 +13,6 @@ import { basename, join } from 'node:path';
 import { fs, log, selectors, types, util } from 'vortex-api';
 
 export const GAME_ID = 'mortalshell2';
-
-/** Full release first, then Open Beta. */
-export const STEAM_APP_IDS_PREFERRED = ['2584270', '4711740'] as const;
-export const STEAM_APP_ID_RELEASE = '2584270';
-export const STEAM_APP_ID_BETA = '4711740';
 
 /**
  * Nexus mod ids on mortalshell2 (verified against live packages):
@@ -515,73 +509,6 @@ export async function assessDmlRuntime(
     return { ...base, message: guidance, guidance };
   }
   return { ...base, guidance };
-}
-
-/**
- * Wrap Vortex registerGame for dual Steam AppID discovery.
- * Injected by games/mortalshell2/build.mjs (GDL allows only one stores.steam).
- * Ownership diagnostics register via game.yaml `diagnostics:`.
- *
- * Also stubs `registerHealthCheck` when absent so GDL lifecycle vitest harness
- * (which does not mock it) can load extensions that declare diagnostics. Real
- * Vortex provides the method; the stub is a no-op only in tests.
- */
-export function wrapApiForDualSteamDiscovery(api: types.IExtensionContext): void {
-  if (typeof api.registerHealthCheck !== 'function') {
-    api.registerHealthCheck = () => undefined;
-  }
-
-  const original = api.registerGame.bind(api);
-  api.registerGame = (game: types.IGame) => {
-    if (game.id !== GAME_ID) {
-      return original(game);
-    }
-
-    const gdlQueryPath = game.queryPath.bind(game);
-    game.queryPath = async () => {
-      for (const appId of STEAM_APP_IDS_PREFERRED) {
-        try {
-          const found = await util.GameStoreHelper.findByAppId([appId], 'steam');
-          if (found?.gamePath) {
-            log('info', 'mortalshell2: discovered Steam install', {
-              appId,
-              path: found.gamePath,
-            });
-            return { path: found.gamePath, store: 'steam' };
-          }
-        } catch {
-          // try next
-        }
-      }
-      return gdlQueryPath();
-    };
-
-    game.environment = {
-      ...(game.environment ?? {}),
-      SteamAPPId: STEAM_APP_ID_RELEASE,
-    };
-    game.details = {
-      ...(game.details ?? {}),
-      steamAppId: Number(STEAM_APP_ID_RELEASE),
-      steamAppIdRelease: STEAM_APP_ID_RELEASE,
-      steamAppIdBeta: STEAM_APP_ID_BETA,
-      steamAppIds: [...STEAM_APP_IDS_PREFERRED],
-      // Open Beta Steam installdir observed as "Mortal Shell II Demo".
-      // Full release folder name is unverified — do not assume identity.
-      betaInstallDirName: 'Mortal Shell II Demo',
-      ue4ssRecommendedPackage: {
-        nexusDomain: 'mortalshell2',
-        nexusModId: UE4SS_NEXUS_MOD_ID,
-      },
-      dmlRecommendedPackage: {
-        nexusDomain: 'mortalshell2',
-        nexusModId: DML_NEXUS_MOD_ID,
-        deployPath: 'MortalShell2/Content/Paks/dml',
-      },
-    };
-
-    return original(game);
-  };
 }
 
 export async function detectGameVersion(ctx: {

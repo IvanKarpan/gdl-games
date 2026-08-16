@@ -3,13 +3,8 @@
 # Engine: Unreal Engine with IoStore (.pak / .ucas / .utoc). Observed on Open Beta.
 # Shipping exe: MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
 # Steam bootstrap at install root: MortalShell2.exe
-#
-# Steam AppIDs:
-#   - Open Beta (observed): 4711740 — stores.steam below (GDL allows one value)
-#   - Full release (store page): 2584270 — preferred at runtime via hooks wrap
-# Dual discovery (release preferred, beta fallback) is injected by
-# games/mortalshell2/build.mjs + src/hooks.ts::wrapApiForDualSteamDiscovery
-# (optional per-game build.mjs — Nx plugin uses it when present).
+# Open Beta Steam AppID: 4711740 (current pre-release test target).
+# Retail discovery/layout is intentionally deferred until the retail build can be verified.
 #
 # Framework ownership (optional — never pre-installed by managing the game):
 #   UE4SS: absent | partial | vortex-managed | externally-managed | ultra-managed
@@ -26,7 +21,6 @@
 # Hooks must export Vortex 2.4 health checks (category/severity/triggers; checkMod
 # or check). Missing `triggers` crashes HealthCheckRegistry and bricks Vortex.
 # missingUe4ssCheck / logicModLoaderCheck are game-level check+fix.
-# build.mjs stubs registerHealthCheck in the lifecycle vitest harness (gdl gap).
 #
 # Other notes:
 #   - Standard asset paks → Content/Paks/~mods (matches Ultra+ layout).
@@ -56,8 +50,6 @@ game:
     # supportsSymlinks:false + one unwritable modType path yields "No deployment method".
     supportsSymlinks: true
     gameProjectFolder: MortalShell2
-    steamAppIdBeta: "4711740"
-    steamAppIdRelease: "2584270"
     # Staging folder must share the game drive for hardlinks (e.g. D:\Vortex\{game}).
     ignoreConflicts:
       - mods.txt
@@ -68,8 +60,7 @@ game:
       - mods.txt
 
 stores:
-  # GDL single value — beta AppID so store helper works before the wrap runs.
-  # Runtime wrap prefers 2584270 then falls back to 4711740.
+  # Open Beta — current pre-release target. Replace only after retail validation.
   steam: "4711740"
 
 context:
