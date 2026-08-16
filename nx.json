@@ -4,8 +4,7 @@
     "gameSource": [
       "{projectRoot}/game.yaml",
       "{projectRoot}/src/**/*",
-      "{projectRoot}/gameart.webp",
-      "{projectRoot}/gameart.jpg"
+      "{projectRoot}/gameart.webp"
     ],
     "gdlToolchain": [
       {
