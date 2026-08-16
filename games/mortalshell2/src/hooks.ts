@@ -4,6 +4,8 @@
  * Archive routing and Steam discovery live in game.yaml. Hooks cover:
  * - UE4SS / Ultra+ / manual ownership assessment + diagnostics
  * - DmgModLoader (DML) awareness (Content/Paks/dml) — never confuse with DirectML
+ * - ReShade preset mods: suggest installing ReShade from reshade.app when the
+ *   runtime is absent from Binaries/Win64 (presets ship the .ini only)
  * - idempotent mods.txt merge
  *
  * Product backlog: PLAN.md (not shipped in the zip).
@@ -24,6 +26,9 @@ export const DML_NEXUS_MOD_ID = 4;
 export const UE4SS_NEXUS_MOD_ID = 5;
 export const UE4SS_NEXUS_PAGE =
   `https://www.nexusmods.com/mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}`;
+
+/** Official ReShade site — preset mods need the runtime, which presets do not ship. */
+export const RESHADE_SITE = 'https://reshade.app/';
 
 const BPMOD_LOADER_DIR = 'BPModLoaderMod';
 
@@ -605,6 +610,34 @@ export async function regenerateModsTxt(ctx: {
   await fs.writeFileAsync(join(modsDir, 'mods.txt'), `${lines.join('\n')}\n`);
 }
 
+/** ReShade runtime marker beside the shipping exe (ReShade32.dll / ReShade64.dll). */
+const RESHADE_RUNTIME_DLL = /^reshade(?:32|64)?\.dll$/i;
+
+/** True when a ReShade runtime DLL is present under MortalShell2/Binaries/Win64. */
+export async function hasReShadeRuntime(discoveryPath: string): Promise<boolean> {
+  try {
+    const entries = await readdir(win64(discoveryPath));
+    return entries.some((e) => RESHADE_RUNTIME_DLL.test(e));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a deployed ReShade preset .ini sits in Win64. ReShade's own config
+ * (reshade.ini) is excluded — that belongs to the runtime, not a preset mod.
+ */
+export async function hasReShadePresetOnDisk(discoveryPath: string): Promise<boolean> {
+  try {
+    const entries = await readdir(win64(discoveryPath));
+    return entries.some(
+      (e) => /\.ini$/i.test(e) && /reshade/i.test(e) && !/^reshade\.ini$/i.test(e),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** True when Content/Paks/LogicMods has real mod paks (not just Vortex metadata). */
 export async function hasLogicModPaksOnDisk(discoveryPath: string): Promise<boolean> {
   const dir = join(discoveryPath, 'MortalShell2', 'Content', 'Paks', 'LogicMods');
@@ -771,6 +804,55 @@ export async function notifyMissingFrameworks(
 }
 
 /**
+ * ReShade preset mods ship only the preset .ini. When one is deployed/enabled and
+ * no ReShade runtime DLL sits beside the shipping exe, point at the official site
+ * so the user installs the latest ReShade for this game. Dismissed again once the
+ * runtime appears or no preset remains (mirrors notifyMissingFrameworks).
+ */
+export async function notifyMissingReShade(api: types.IExtensionApi): Promise<void> {
+  if (getActiveGameId(api) !== GAME_ID) return;
+  const discovery = getDiscovery(api);
+  if (!discovery?.path) return;
+
+  // Vortex mod-type state can lag — also trust a preset .ini already in Win64.
+  if (!hasEnabledReShadePreset(api) && !(await hasReShadePresetOnDisk(discovery.path))) {
+    dismissNotification(api, 'mortalshell2-need-reshade');
+    return;
+  }
+  if (await hasReShadeRuntime(discovery.path)) {
+    dismissNotification(api, 'mortalshell2-need-reshade');
+    return;
+  }
+
+  const anyApi = api as types.IExtensionApi & {
+    sendNotification?: (n: Record<string, unknown>) => void;
+  };
+  if (typeof anyApi.sendNotification !== 'function') return;
+  anyApi.sendNotification({
+    id: 'mortalshell2-need-reshade',
+    type: 'warning',
+    title: 'ReShade not installed',
+    message:
+      'This mod is a ReShade preset, but no ReShade runtime was found in ' +
+      'MortalShell2/Binaries/Win64. Install the latest ReShade from the official ' +
+      `site (${RESHADE_SITE}) and select MortalShell2-Win64-Shipping.exe, then relaunch.`,
+    noDismiss: true,
+    actions: [
+      {
+        title: 'Open reshade.app',
+        action: (dismiss: () => void) => {
+          void util.opn(RESHADE_SITE).finally(() => dismiss());
+        },
+      },
+      {
+        title: 'Dismiss',
+        action: (dismiss: () => void) => dismiss(),
+      },
+    ],
+  });
+}
+
+/**
  * did-deploy: merge mods.txt, then toast if LogicMods/UE4SS mods need frameworks.
  * Health-check Fix actions alone often never surface as notifications.
  */
@@ -780,10 +862,18 @@ export async function afterDeploy(ctx: {
   api: unknown;
 }): Promise<void> {
   await regenerateModsTxt(ctx);
+  const api = ctx.api as types.IExtensionApi;
   try {
-    await notifyMissingFrameworks(ctx.api as types.IExtensionApi);
+    await notifyMissingFrameworks(api);
   } catch (err) {
     log('warn', 'mortalshell2: framework notify failed', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
+    await notifyMissingReShade(api);
+  } catch (err) {
+    log('warn', 'mortalshell2: reshade notify failed', {
       err: err instanceof Error ? err.message : String(err),
     });
   }
@@ -1079,6 +1169,8 @@ const UE4SS_DEPENDENT_MOD_TYPES = new Set([
   'mortalshell2-ue4ss-tree',
 ]);
 
+const RESHADE_PRESET_MOD_TYPES = new Set(['mortalshell2-reshade-preset']);
+
 function profileModEnabled(
   api: types.IExtensionApi,
   modId: string,
@@ -1128,6 +1220,11 @@ export function hasEnabledLogicMod(api: types.IExtensionApi): boolean {
 /** True when Vortex has an enabled UE4SS Lua/C++ mod (not the runtime package). */
 export function hasEnabledUe4ssDependentMod(api: types.IExtensionApi): boolean {
   return hasEnabledModOfTypes(api, UE4SS_DEPENDENT_MOD_TYPES);
+}
+
+/** True when Vortex has an enabled ReShade preset mod for this game. */
+export function hasEnabledReShadePreset(api: types.IExtensionApi): boolean {
+  return hasEnabledModOfTypes(api, RESHADE_PRESET_MOD_TYPES);
 }
 
 /**
