@@ -41,7 +41,7 @@ game:
   requiredFiles:
     - MortalShell2.exe
     - MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
-  logo: gameart.jpg
+  logo: gameart.webp
   author: Community
   nexusDomain: mortalshell2
   queryModPath: ${pakModsPath}
