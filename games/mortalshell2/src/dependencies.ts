@@ -250,8 +250,8 @@ export function notificationSafeLabel(input: {
   modName?: string;
 }): string {
   return (
-    input.modName?.trim()
-    || input.name?.trim()
+    input.name?.trim()
+    || input.modName?.trim()
     || input.vortexModId
   );
 }

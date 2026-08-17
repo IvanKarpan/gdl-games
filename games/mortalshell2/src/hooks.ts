@@ -180,23 +180,21 @@ export function isLogicModPath(file: string): boolean {
 
 export function bpModLoaderGuidance(a: BpModLoaderAssessment, ultraPlus = false): string {
   if (a.present && a.enabled) {
-    return 'BPModLoaderMod is present and enabled — LogicMods under Content/Paks/LogicMods can load.';
+    return 'BPModLoader is enabled, so your LogicMods can load.';
   }
   if (a.present && !a.enabled) {
     return (
-      'BPModLoaderMod is installed but not enabled. Enable it in ue4ss/Mods/mods.txt ' +
+      'BPModLoader is installed but disabled. Enable it in ue4ss/Mods/mods.txt ' +
       '(BPModLoaderMod : 1) or add enabled.txt inside BPModLoaderMod/, then redeploy/restart. ' +
       (ultraPlus
-        ? 'Ultra+ owns the UE4SS runtime — enabling this Lua mod is safe and does not replace Ultra+.'
+        ? 'Ultra+ manages UE4SS, so enabling this mod does not replace it.'
         : '')
     );
   }
   return (
-    'UE4SS is installed but BPModLoaderMod is missing under ue4ss/Mods. ' +
-    'LogicMods need that Lua mod. Install or repair the tested UE4SS package from Nexus ' +
-    `(mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}) — it includes BPModLoaderMod. ` +
+    'BPModLoader is missing. Install or repair UE4SS from Nexus Mods; it includes BPModLoader. ' +
     (ultraPlus
-      ? 'If Ultra+ owns your runtime, copy BPModLoaderMod into ue4ss/Mods from that package instead of replacing Ultra+.'
+      ? 'If Ultra+ manages UE4SS, copy BPModLoader into ue4ss/Mods instead of replacing UE4SS.'
       : '')
   );
 }
@@ -365,41 +363,33 @@ export async function detectUltraPlus(discoveryPath: string): Promise<boolean> {
 export function ue4ssGuidance(a: Ue4ssRuntimeAssessment): string {
   if (a.health === 'healthy' && a.ownership === 'ultra-managed') {
     return (
-      'UE4SS appears to be managed by Ultra+ Manager. Vortex will manage individual ' +
-      'UE4SS mods but will not replace or update the UE4SS runtime. Use Ultra+ Manager ' +
-      'to update or repair it.'
+      'Ultra+ Manager manages UE4SS. Use Ultra+ Manager to update or repair it.'
     );
   }
   if (a.health === 'healthy' && a.ownership === 'externally-managed') {
     return (
-      'UE4SS detected as a manual/external install. Vortex will manage UE4SS mods only ' +
-      'and will not update, adopt, or purge that runtime.'
+      'UE4SS was installed outside Vortex. Use the tool that installed it to update or repair it.'
     );
   }
   if (a.health === 'healthy' && a.ownership === 'vortex-managed') {
-    return 'UE4SS is Vortex-managed. Update or remove it through the Vortex UE4SS framework package.';
+    return 'UE4SS is installed in Vortex. Update or remove it from Vortex.';
   }
   if (a.ultraPlusDetected || a.ownership === 'ultra-managed') {
     return (
-      'UE4SS is missing or incomplete while Ultra+ Manager appears present. Repair or ' +
-      'reinstall UE4SS through Ultra+ Manager — Vortex will not overwrite that runtime. ' +
-      'Then re-enable the dependent mod.'
+      'UE4SS is missing or incomplete while Ultra+ Manager is installed. Repair or ' +
+      'reinstall UE4SS with Ultra+ Manager, then re-enable this mod.'
     );
   }
   if (a.health === 'partial') {
     return (
-      'UE4SS looks partial. A healthy layout needs dwmapi.dll, ue4ss/UE4SS.dll, and ' +
-      'ue4ss/Mods under MortalShell2/Binaries/Win64 (beside the shipping exe). Repair ' +
-      'the manual install, use Ultra+ Manager if that owns your runtime, or use Fix to ' +
-      `install the Nexus UE4SS package (mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}).`
+      'UE4SS is incomplete. It needs dwmapi.dll, ue4ss/UE4SS.dll, and ue4ss/Mods beside ' +
+      'the game executable. Repair the existing installation, use Ultra+ Manager if it ' +
+      'manages UE4SS, or select Install UE4SS in Vortex.'
     );
   }
   return (
-    'This mod needs UE4SS. Use Fix to download the Nexus UE4SS package ' +
-    `(mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}), install manually ` +
-    '(dwmapi.dll + ue4ss/UE4SS.dll + ue4ss/Mods under MortalShell2/Binaries/Win64), ' +
-    'or repair via Ultra+ Manager if that owns your runtime. Managing the game in ' +
-    'Vortex does not install frameworks by itself.'
+    'This mod needs UE4SS. Select Install UE4SS to download it, then install and enable it ' +
+    'in Vortex. Use Ultra+ Manager instead if it manages your UE4SS installation.'
   );
 }
 
@@ -480,32 +470,28 @@ export async function assessUe4ssRuntime(
 export function dmlGuidance(a: DmlRuntimeAssessment): string {
   if (a.misplacedInPakMods) {
     return (
-      'DmgModLoader files were found under Content/Paks/~mods but must live in ' +
-      'Content/Paks/dml/. Reinstall/redeploy DML with the current extension (mod type ' +
-      'mortalshell2-dml-framework), or move dml*.pak/ucas/utoc into Content/Paks/dml/.'
+      'DML was found under Content/Paks/~mods, but it belongs in Content/Paks/dml/. ' +
+      'Reinstall DML in Vortex, or move dml*.pak, dml*.ucas, and dml*.utoc into Content/Paks/dml/.'
     );
   }
   if (a.health === 'healthy' && a.ownership === 'externally-managed') {
     return (
-      'DmgModLoader (DML) detected under Content/Paks/dml. Vortex will install compatible ' +
-      'LogicMods but will not replace or purge that DML runtime.'
+      'DML was installed outside Vortex. Vortex can manage compatible LogicMods but will ' +
+      'not replace the DML files.'
     );
   }
   if (a.health === 'healthy' && a.ownership === 'vortex-managed') {
-    return 'DML is Vortex-managed. Update or remove it through the Vortex DML package.';
+    return 'DML is installed in Vortex. Update or remove it from Vortex.';
   }
   if (a.health === 'partial') {
     return (
-      'DmgModLoader looks partial under Content/Paks/dml (incomplete dml.pak/ucas/utoc core set). ' +
-      `Repair or reinstall from Nexus mortalshell2/mods/${DML_NEXUS_MOD_ID}. ` +
-      'Note: MortalShell2/Binaries/Win64/DML is Microsoft DirectML, not DmgModLoader.'
+      'DML is incomplete under Content/Paks/dml. It needs dml.pak, dml.ucas, and dml.utoc. ' +
+      'Repair or reinstall DML from Nexus Mods. MortalShell2/Binaries/Win64/DML is Microsoft DirectML, not DML.'
     );
   }
   return (
-    'DmgModLoader was not found under MortalShell2/Content/Paks/dml. ' +
-    `Install Nexus mortalshell2/mods/${DML_NEXUS_MOD_ID} (routes to Content/Paks/dml/). ` +
-    'Do not use Binaries/Win64/DML (Microsoft DirectML) and do not leave dml*.pak in ~mods. ' +
-    'Alternate LogicMod loader: enabled BPModLoaderMod under ue4ss/Mods.'
+    'DML is not installed. Select Install DML to download it, then install and enable it in ' +
+    'Vortex. Do not use Binaries/Win64/DML, which is Microsoft DirectML.'
   );
 }
 
@@ -804,6 +790,7 @@ export type InstalledModLike = {
   installationPath?: string;
   attributes?: {
     modId?: number;
+    fileId?: number;
     name?: string;
     modName?: string;
     source?: string;
@@ -1087,11 +1074,10 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
   anyApi.sendNotification({
     id: 'mortalshell2-need-reshade',
     type: 'warning',
-    title: 'ReShade not installed',
+    title: 'ReShade is required',
     message:
-      'This mod is a ReShade preset, but no ReShade runtime was found in ' +
-      'MortalShell2/Binaries/Win64. Install the latest ReShade from the official ' +
-      `site (${RESHADE_SITE}) and select MortalShell2-Win64-Shipping.exe, then relaunch.`,
+      'This ReShade preset needs ReShade installed. Install it from reshade.me, select ' +
+      'MortalShell2-Win64-Shipping.exe, then restart the game.',
     noDismiss: true,
     actions: [
       {
@@ -1282,14 +1268,15 @@ async function installNexusMod(
       notify(
         api,
         'warning',
-        `Could not resolve a ${opts.label} file on Nexus — opening the download page.`,
+        `Vortex could not choose a ${opts.label} download. The Nexus Mods download page is opening; ` +
+        'choose the file recommended by the mod author.',
         { id: opts.notifyId },
       );
       await util.opn(pageUrl);
       return;
     }
 
-    notify(api, 'info', `Downloading ${opts.label} from Nexus Mods…`, {
+    notify(api, 'info', `Vortex is downloading ${opts.label} from Nexus Mods.`, {
       id: opts.notifyId,
     });
     await emitAndAwait(api, 'nexus-download', domain, modId, fileId);
@@ -1303,7 +1290,8 @@ async function installNexusMod(
     notify(
       api,
       'warning',
-      `Automatic download failed (${msg}). Opening the Nexus page for manual install.`,
+      'Vortex could not start the download. The Nexus Mods download page is opening; ' +
+      'download and install the file manually.',
       { id: opts.notifyId },
     );
     try {
@@ -1320,8 +1308,7 @@ export async function installUe4ssFromNexus(api: types.IExtensionApi): Promise<v
     label: 'UE4SS',
     nameHint: /ue4ss/i,
     successHint:
-      'UE4SS download started. Install/enable the Vortex UE4SS framework package (mod type ' +
-      'mortalshell2-ue4ss-framework → Binaries/Win64), then redeploy. That pack includes BPModLoaderMod.',
+      'UE4SS download started. When it finishes, install and enable it in Vortex, then redeploy your mods.',
     notifyId: 'mortalshell2-ue4ss-fix',
   });
 }
@@ -1332,7 +1319,7 @@ export async function installDmlFromNexus(api: types.IExtensionApi): Promise<voi
     label: 'DmgModLoader (DML)',
     nameHint: /dml/i,
     successHint:
-      'DML download started. Install/enable it so files land in Content/Paks/dml/ (not ~mods), then redeploy.',
+      'DML download started. When it finishes, install and enable it in Vortex, then redeploy your mods.',
     notifyId: 'mortalshell2-dml-fix',
   });
 }
@@ -1423,8 +1410,8 @@ function dmlActivationMessage(input: {
 }): string {
   return (
     `${input.label} is deployed and DML is installed. `
-    + 'DML may require an additional activation step for this LogicMod. '
-    + "Check the mod author's instructions or DML documentation."
+    + 'Some mods need an extra activation step before they work. '
+    + "Check the mod author's instructions."
   );
 }
 
@@ -1461,7 +1448,7 @@ function sendDmlActivationReminder(
   api.sendNotification({
     id,
     type: 'info',
-    title: 'LogicMod activation',
+    title: "Check this mod's activation instructions",
     message: dmlActivationMessage(input),
     allowSuppress: false,
   } as never);
@@ -1527,6 +1514,9 @@ const UNSUPPORTED_MOD_TYPE = 'mortalshell2-unsupported';
 type UnsupportedNotificationInput = {
   label: string;
   identity: string;
+  source?: string;
+  nexusModId?: number;
+  nexusFileId?: number;
 };
 
 function unsupportedNotificationId(identity: string): string {
@@ -1543,14 +1533,40 @@ function sendUnsupportedWarning(
   const notificationApi = api as DependencyNotificationApi;
   if (typeof notificationApi.sendNotification !== 'function') return;
 
+  const hasNexusPage =
+    input.source === 'nexus'
+    && Number.isInteger(input.nexusModId)
+    && Number(input.nexusModId) > 0
+    && Number.isInteger(input.nexusFileId)
+    && Number(input.nexusFileId) > 0;
+  const actions = hasNexusPage
+    ? [{
+      title: 'View on Nexus Mods',
+      action: (dismiss: () => void) => {
+        const url = `https://www.nexusmods.com/mortalshell2/mods/${input.nexusModId}`;
+        void Promise.resolve()
+          .then(() => util.opn(url))
+          .catch((err) => {
+            log('warn', 'mortalshell2: failed to open unsupported-mod Nexus page', {
+              err: err instanceof Error ? err.message : String(err),
+              modId: input.nexusModId,
+            });
+          })
+          .finally(dismiss);
+      },
+    }]
+    : [];
+
   notificationApi.sendNotification({
     id,
     type: 'warning',
-    title: 'Mortal Shell II unsupported mod',
+    title: "Check this mod's installation instructions",
     message:
-      `${input.label} is recognized and deploys its archive tree unchanged, but `
-      + "Package 05 does not service its functionality. Please read the mod author's instructions.",
+      `${input.label} does not look like a mod that should be installed through Vortex. `
+      + 'Its files were placed in the default mod folder, but it may not work there. '
+      + "Please follow the mod author's installation instructions.",
     allowSuppress: false,
+    actions,
   });
 
   const makeAction = getSuppressNotificationAction();
@@ -1626,7 +1642,7 @@ function sendDependencyNotification(
   notificationApi.sendNotification({
     id: dependencyNotificationId(input.decision, input.identity),
     type: 'warning',
-    title: 'Mortal Shell II mod dependency',
+    title: 'Mod requirement',
     message: dependencyFailureMessage(input.label, input.decision, {
       ue4ssOwnership: input.ue4ssOwnership,
     }),
@@ -1733,24 +1749,24 @@ function dependencyFailureMessage(
 ): string {
   switch (decision.kind) {
     case 'install-dml':
-      return `${label} requires a LogicMod loader. DmgModLoader (DML) is not installed.`;
+      return `${label} needs DML to run. DML is not installed. Select Install DML to download it, then install and enable it in Vortex.`;
     case 'enable-dml':
-      return `${label} requires a LogicMod loader. A DML package is already installed in Vortex but is not enabled/deployed for the active Mortal Shell II profile.`;
+      return `${label} needs DML to run. DML is installed in Vortex but is disabled for this profile. Enable it in Vortex, then redeploy your mods.`;
     case 'repair-dml':
       return decision.ownership === 'vortex'
-        ? `${label} requires DML, but the Vortex-managed DML runtime is incomplete. Repair or reinstall the existing DML package, then redeploy.`
-        : `${label} requires DML, but an external/manual DML runtime is incomplete. Repair that existing runtime; Vortex will not overwrite it automatically.`;
+        ? `${label} needs DML to run, but its Vortex installation is incomplete. Repair or reinstall DML in Vortex, then redeploy your mods.`
+        : `${label} needs DML to run, but its existing installation is incomplete. Repair that installation, then redeploy your mods.`;
     case 'install-ue4ss':
-      return `${label} requires UE4SS, but no healthy UE4SS runtime is installed.`;
+      return `${label} needs UE4SS to run. UE4SS is not installed. Select Install UE4SS to download it, then install and enable it in Vortex.`;
     case 'enable-ue4ss':
-      return `${label} requires UE4SS. A UE4SS package is already installed in Vortex but is not enabled/deployed for the active Mortal Shell II profile.`;
+      return `${label} needs UE4SS to run. UE4SS is installed in Vortex but is disabled for this profile. Enable it in Vortex, then redeploy your mods.`;
     case 'repair-ue4ss':
       if (context.ue4ssOwnership === 'ultra-managed') {
-        return `${label} requires UE4SS, but the Ultra+-managed UE4SS runtime is incomplete. Repair it through Ultra+ Manager; Vortex will not overwrite it.`;
+        return `${label} needs UE4SS to run, but the Ultra+ installation is incomplete. Repair it with Ultra+ Manager, then redeploy your mods.`;
       }
       return decision.ownership === 'vortex'
-        ? `${label} requires UE4SS, but the Vortex-managed UE4SS runtime is incomplete. Repair or reinstall the existing package, then redeploy.`
-        : `${label} requires UE4SS, but the manual/external runtime is incomplete. Repair that runtime; Vortex will not overwrite it automatically.`;
+        ? `${label} needs UE4SS to run, but its Vortex installation is incomplete. Repair or reinstall UE4SS in Vortex, then redeploy your mods.`
+        : `${label} needs UE4SS to run, but its existing installation is incomplete. Repair that installation, then redeploy your mods.`;
     default:
       return `${label} dependency is satisfied.`;
   }
@@ -1803,7 +1819,13 @@ export async function processReactiveDependencies(ctx: {
         name: mod.attributes?.name,
         modName: mod.attributes?.modName,
       });
-      unsupported.set(unsupportedNotificationId(identity), { label, identity });
+      unsupported.set(unsupportedNotificationId(identity), {
+        label,
+        identity,
+        source: mod.attributes?.source,
+        nexusModId,
+        nexusFileId: mod.attributes?.fileId,
+      });
       continue;
     }
 
