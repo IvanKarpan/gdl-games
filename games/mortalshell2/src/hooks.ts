@@ -632,6 +632,29 @@ type DeploymentManifestLike = {
   files?: DeploymentFileLike[];
 };
 
+type DeploymentByModTypeLike = Record<string, unknown>;
+
+/**
+ * Vortex emits did-deploy's second argument as either the historical
+ * `{ files: IDeployedFile[] }` wrapper or its current map of mod-type IDs to
+ * `IDeployedFile[]`. Preserve the resolver's strict file/source checks below;
+ * this only normalizes the container shape.
+ */
+function deploymentFiles(deployment: unknown): DeploymentFileLike[] {
+  const wrapped = (deployment as DeploymentManifestLike | undefined)?.files;
+  if (Array.isArray(wrapped)) return wrapped;
+
+  if (
+    !deployment
+    || typeof deployment !== 'object'
+    || Array.isArray(deployment)
+  ) return [];
+
+  return Object.values(deployment as DeploymentByModTypeLike)
+    .filter(Array.isArray)
+    .flat() as DeploymentFileLike[];
+}
+
 /**
  * Provenance eligibility for mods.txt adoption (Package-03 review fix). A
  * manifest file may contribute a UE4SS mod dir only when its source resolves to
@@ -838,8 +861,8 @@ export function resolveActiveDeploymentMods(
 
   if (!api) return result;
 
-  const files = (deployment as DeploymentManifestLike | undefined)?.files;
-  if (!Array.isArray(files)) return result;
+  const files = deploymentFiles(deployment);
+  if (files.length === 0) return result;
 
   const bySource = indexMs2ModsBySource(api);
   if (bySource.size === 0) return result;
