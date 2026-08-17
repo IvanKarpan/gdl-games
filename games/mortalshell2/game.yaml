@@ -83,30 +83,30 @@ modTypes:
   - {
       id: mortalshell2-ue4ss-mod,
       name: "UE4SS Mod",
-      path: "${ue4ssModsPath}",
+      path: "${win64Path}",
     }
-  # Deploy root is ue4ss/ when the archive already contains Mods/...
+  # Use Win64 as the Vortex root; installers preserve the ue4ss/ subtree.
   - {
       id: mortalshell2-ue4ss-tree,
       name: "UE4SS tree (ue4ss/Mods)",
-      path: "${ue4ssRootPath}",
+      path: "${win64Path}",
     }
   # DmgModLoader (Nexus mortalshell2/mods/4) — NOT Microsoft DirectML, NOT ~mods
   - {
       id: mortalshell2-dml-framework,
       name: "DmgModLoader (DML)",
-      path: "${dmlPath}",
+      path: "${paksPath}",
     }
   - {
       id: mortalshell2-dml-tree,
       name: "DmgModLoader tree (Content/Paks)",
       path: "${paksPath}",
     }
-  # Named LogicMod folders (AutoPickup/) land directly under LogicMods/
+  # Flat LogicMods are prefixed below the shipped Paks deployment root.
   - {
       id: mortalshell2-logicmods,
       name: "LogicMods (named mod folder)",
-      path: "${logicModsPath}",
+      path: "${paksPath}",
     }
   # Archives that already include a LogicMods/ segment deploy under Content/Paks
   - {
@@ -194,7 +194,8 @@ installers:
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll}" }
     anchor: "**/dml.pak"
     take: parent
-    placeAt: "${dmlPath}"
+    placeAt: "${paksPath}"
+    destinationPrefix: dml
     modType: mortalshell2-dml-framework
 
   # --- 19: UE4SS mod plus sibling shared dependency tree ---
@@ -214,7 +215,8 @@ installers:
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
     anchor: "MortalShell2Mod/Scripts/main.lua"
     take: archive-root
-    placeAt: "${ue4ssModsPath}"
+    placeAt: "${win64Path}"
+    destinationPrefix: ue4ss/Mods
     modType: mortalshell2-ue4ss-mod
 
   # --- 20: UE4SS mod already rooted at ue4ss/Mods/... ---
@@ -224,7 +226,8 @@ installers:
     unless: { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
     anchor: "**/ue4ss/Mods/"
     take: self
-    placeAt: "${ue4ssRootPath}"
+    placeAt: "${win64Path}"
+    destinationPrefix: ue4ss
     modType: mortalshell2-ue4ss-tree
 
   # --- 21: UE4SS mod rooted at Mods/ModName/... ---
@@ -237,7 +240,8 @@ installers:
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
     anchor: "**/Mods/"
     take: self
-    placeAt: "${ue4ssRootPath}"
+    placeAt: "${win64Path}"
+    destinationPrefix: ue4ss
     modType: mortalshell2-ue4ss-tree
 
   # --- 22: UE4SS mod ModName/Scripts/main.lua ---
@@ -253,7 +257,8 @@ installers:
         - { hasFile: "Engine/**" }
     anchor: "**/Scripts/*.lua"
     take: parent.parent
-    placeAt: "${ue4ssModsPath}"
+    placeAt: "${win64Path}"
+    destinationPrefix: ue4ss/Mods
     modType: mortalshell2-ue4ss-mod
 
   # --- 23: UE4SS mod enabled.txt only ---
@@ -268,7 +273,8 @@ installers:
         - { hasFile: "Engine/**" }
     anchor: "**/enabled.txt"
     take: parent.parent
-    placeAt: "${ue4ssModsPath}"
+    placeAt: "${win64Path}"
+    destinationPrefix: ue4ss/Mods
     modType: mortalshell2-ue4ss-mod
 
   # --- 24: archive already containing Content/Paks/LogicMods ---
@@ -318,7 +324,7 @@ installers:
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
         - { hasFile: "**/{dwmapi.dll,dxgi.dll,UE4SS.dll}" }
-    copy: { stripCommonRoot: false }
+    copy: { stripCommonRoot: false, destinationPrefix: LogicMods }
     modType: mortalshell2-logicmods
 
   # --- 27: ReShade preset shipped as a flat *reshade*.ini at the archive root ---
@@ -480,13 +486,11 @@ installers:
 discovery:
   version: { hook: detectGameVersion }
 
-# Setup only guarantees the ordinary mod directories. Optional framework
-# locations (DML under Content/Paks/dml, UE4SS Mods) are NOT pre-created:
-# their absence on a vanilla install is meaningful state that detection must
-# observe — creating them would fabricate false "partial" evidence.
+# Setup guarantees only the ordinary PAK root. Optional framework locations are
+# installed below shipped Win64/Paks ancestors and remain absent until content
+# deploys, so empty directories cannot fabricate partial health evidence.
 setup:
   ensureDirs:
-    - ${logicModsPath}
     - ${pakModsPath}
 
 events:
@@ -825,9 +829,9 @@ tests:
         matched: logicmods-root-triplet
         modType: mortalshell2-logicmods
         plan:
-          - AutoPickup.pak
-          - AutoPickup.ucas
-          - AutoPickup.utoc
+          - LogicMods/AutoPickup.pak
+          - LogicMods/AutoPickup.ucas
+          - LogicMods/AutoPickup.utoc
 
     # Nexus mod 2 (No-HUD-No-Effects / ShaderToggler v0.2) — install-root-relative;
     # the whole tree incl. top-level docs must stay intact under the install root.
