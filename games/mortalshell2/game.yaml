@@ -398,12 +398,14 @@ installers:
 discovery:
   version: { hook: detectGameVersion }
 
+# Setup only guarantees the ordinary mod directories. Optional framework
+# locations (DML under Content/Paks/dml, UE4SS Mods) are NOT pre-created:
+# their absence on a vanilla install is meaningful state that detection must
+# observe — creating them would fabricate false "partial" evidence.
 setup:
   ensureDirs:
     - ${logicModsPath}
     - ${pakModsPath}
-    - ${dmlPath}
-    - ${ue4ssModsPath}
 
 events:
   # Reconcile mods.txt and surface framework guidance after deployment.
