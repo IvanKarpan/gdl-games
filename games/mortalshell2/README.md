@@ -77,7 +77,7 @@ Use normal serviced representatives (`3/2`, `5/6`, `4/5`, `6/7`, `9/13`, `10/14`
 
 ## Release-Candidate Results
 
-No Package 05 release-candidate session has been recorded; release gate remains open.
+Automated RC artifact recorded on `2026-08-17`: retail build ID `24772279`; extension version `0.1.0`; production commit `c75f87567d5e1f82ade7934501a2b44795395daa`; ZIP `games/mortalshell2/out/mortalshell2-vortex-v0.1.0.zip`; SHA-256 `e7da63131cde964bf0d913bf27e82a3e6a5fed46b241083b8051f96c71181f4b`. The automated build, generated tests, corpus, package, and documentation audit passed. This records artifact identity only: no user-operated Vortex or gameplay session has been recorded, so the manual release gate remains open.
 
 | Validation date | Retail build ID | Extension version/commit | Vortex version | Representative mod/file | Structural class | Expected | Observed | Result |
 |---|---|---|---|---|---|---|---|---|
