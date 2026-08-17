@@ -1232,15 +1232,20 @@ export async function notifyMissingFrameworks(
           ue4ss.ultraPlusDetected || ue4ss.ownership === 'ultra-managed',
         ),
         noDismiss: true,
-        actions: [
-          {
-            title: 'Download UE4SS',
-            action: (dismiss: () => void) => {
-              void installUe4ssFromNexus(api).finally(() => dismiss());
-            },
-          },
-          { title: 'Open Nexus', action: openUe4ssNexus },
-        ],
+        actions: ultraOrExternal
+          ? [
+              { title: 'Open Nexus', action: openUe4ssNexus },
+              { title: 'Dismiss', action: (dismiss: () => void) => dismiss() },
+            ]
+          : [
+              {
+                title: 'Download UE4SS',
+                action: (dismiss: () => void) => {
+                  void installUe4ssFromNexus(api).finally(() => dismiss());
+                },
+              },
+              { title: 'Open Nexus', action: openUe4ssNexus },
+            ],
       });
     }
   } else {
