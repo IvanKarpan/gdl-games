@@ -656,7 +656,7 @@ export async function detectGameVersion(ctx: {
 
 type DeploymentFileLike = {
   relPath?: string;
-  source?: string;
+  source?: unknown;
   target?: string;
 };
 
@@ -665,34 +665,136 @@ type DeploymentManifestLike = {
 };
 
 /**
- * UE4SS mod directory names that this deployment actually delivered, taken only
- * from the Vortex deployment manifest. Manual directories on disk are NOT
- * deployment evidence and must never be inferred here.
+ * Provenance eligibility for mods.txt adoption (Package-03 review fix). A
+ * manifest file may contribute a UE4SS mod dir only when its source resolves to
+ * an installed, active-profile-enabled MS2 mod of one of these types:
+ * - direct consumer types ship ue4ss/Mods/<Mod>/... payloads;
+ * - carrier types (root / content folder) are eligible because Package 02 proved
+ *   Nexus mods 3/7/11 install as mortalshell2-root while containing UE4SS Lua
+ *   mods — but their files must still carry strong Scripts evidence below.
+ * Framework/non-consumer types (ue4ss-framework, dml-*, logicmods*, pak,
+ * binaries, reshade-preset) are deliberately excluded: their ue4ss/Mods/* files
+ * are package internals and must never be adopted as independent mods.
  */
-function deployedUe4ssModDirs(deployment: unknown): string[] {
-  const files = (
-    deployment as DeploymentManifestLike | undefined
-  )?.files;
+const UE4SS_CONSUMER_SOURCE_TYPES = new Set([
+  'mortalshell2-ue4ss-mod',
+  'mortalshell2-ue4ss-tree',
+]);
 
-  if (!Array.isArray(files)) {
+const UE4SS_CARRIER_SOURCE_TYPES = new Set([
+  'mortalshell2-root',
+  'mortalshell2-contentfolder',
+]);
+
+/**
+ * Strong UE4SS mod evidence: a .lua file directly under <ModName>/Scripts/, at
+ * any deployment root (ue4ss/Mods/<M>, Mods/<M>, or bare <M>). Paths like
+ * ue4ss/Mods/shared/UEHelpers/UEHelpers.lua carry no such evidence, so "shared"
+ * is never derived.
+ */
+function strongUe4ssModDir(relPath: unknown): string | undefined {
+  if (typeof relPath !== 'string') return undefined;
+
+  const segments = norm(relPath).split('/').filter((s) => s.length > 0);
+
+  for (let i = 0; i + 2 < segments.length; i++) {
+    if (
+      segments[i + 1].toLowerCase() === 'scripts'
+      && segments[i + 2].toLowerCase().endsWith('.lua')
+    ) {
+      return segments[i];
+    }
+  }
+
+  return undefined;
+}
+
+type ResolvedSourceMod = {
+  modId: string;
+  type?: string;
+  state?: string;
+};
+
+/**
+ * Vortex stores IDeployedFile.source as the mod's installationPath — see vortex
+ * InstallManager ("that's what the deployment manifest's IDeployedFile.source
+ * field stores") and modActivation passing mod.installationPath to activate().
+ * It can differ from the persistent dictionary key (update-via-replace), so
+ * resolve by matching installed mods on installationPath. Sources claimed by
+ * zero or two+ mods are unresolvable/ambiguous and must never be adopted.
+ */
+function indexMs2ModsBySource(api: types.IExtensionApi): Map<string, ResolvedSourceMod[]> {
+  const index = new Map<string, ResolvedSourceMod[]>();
+
+  try {
+    const state = api.getState() as {
+      persistent?: { mods?: Record<string, Record<string, unknown>> };
+    };
+    const table = state?.persistent?.mods?.[GAME_ID] ?? {};
+
+    for (const [modId, mod] of Object.entries(table)) {
+      if (!mod || typeof mod !== 'object') continue;
+      const record = mod as { installationPath?: unknown; type?: unknown; state?: unknown };
+      if (typeof record.installationPath !== 'string' || record.installationPath.length === 0) {
+        continue;
+      }
+
+      const list = index.get(record.installationPath) ?? [];
+      list.push({
+        modId,
+        type: typeof record.type === 'string' ? record.type : undefined,
+        state: typeof record.state === 'string' ? record.state : undefined,
+      });
+      index.set(record.installationPath, list);
+    }
+  } catch {
+    // Unreadable state → no resolvable sources; adoption stays conservative.
+  }
+
+  return index;
+}
+
+/**
+ * UE4SS mod directory names that this deployment actually delivered, derived
+ * only from provenance-resolved manifest files: each file's source must resolve
+ * unambiguously to an installed MS2 mod enabled in the active profile whose type
+ * is eligible for independent UE4SS mods, and the path must provide strong
+ * Scripts/*.lua evidence. Manual directories on disk are NOT deployment evidence
+ * and must never be inferred here; framework internals (shared libs, bundled
+ * loader mods) never qualify.
+ */
+function deployedUe4ssModDirs(
+  api: types.IExtensionApi | undefined,
+  deployment: unknown,
+): string[] {
+  const files = (deployment as DeploymentManifestLike | undefined)?.files;
+
+  if (!Array.isArray(files) || files.length === 0 || !api) {
     return [];
   }
+
+  const bySource = indexMs2ModsBySource(api);
+  if (bySource.size === 0) return [];
 
   const dirs = new Map<string, string>();
 
   for (const file of files) {
-    const rel = norm(String(file?.relPath ?? ''));
-    if (rel.length === 0) continue;
+    if (!file || typeof file !== 'object') continue;
+    if (typeof file.source !== 'string' || file.source.length === 0) continue;
 
-    const rooted = rel.match(
-      /(?:^|\/)(?:ue4ss\/)?Mods\/([^/]+)\//i,
-    );
-    const modRoot = rel.match(
-      /^([^/]+)\/(?:Scripts\/|enabled\.txt(?:$|\/))/i,
-    );
+    const candidates = bySource.get(file.source);
+    if (!candidates || candidates.length !== 1) continue; // unresolvable/ambiguous → skip
+    const mod = candidates[0];
+    if (mod.state === 'uninstalled') continue;
 
-    const name = rooted?.[1] ?? modRoot?.[1];
-    if (!name) continue;
+    const eligibleType =
+      UE4SS_CONSUMER_SOURCE_TYPES.has(mod.type ?? '')
+      || UE4SS_CARRIER_SOURCE_TYPES.has(mod.type ?? '');
+    if (!eligibleType) continue; // framework/non-consumer internals are never adopted
+    if (profileModEnabled(api, mod.modId) !== true) continue;
+
+    const name = strongUe4ssModDir(file.relPath);
+    if (!name) continue; // no strong Scripts evidence → not an independent mod dir
 
     const key = name.toLowerCase();
     if (!dirs.has(key)) {
@@ -720,7 +822,7 @@ export async function regenerateModsTxt(ctx: {
   if (!discovery?.path) return;
 
   const modsDir = ue4ssModsDir(discovery.path);
-  const requiredDirs = deployedUe4ssModDirs(ctx.deployment);
+  const requiredDirs = deployedUe4ssModDirs(api, ctx.deployment);
   if (requiredDirs.length === 0) return;
 
   let existing = '';
