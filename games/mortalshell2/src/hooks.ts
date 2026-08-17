@@ -654,33 +654,60 @@ export async function detectGameVersion(ctx: {
   }
 }
 
-export async function listModDirs(modsDir: string): Promise<string[]> {
-  let entries: string[];
-  try {
-    entries = await fs.readdirAsync(modsDir);
-  } catch {
+type DeploymentFileLike = {
+  relPath?: string;
+  source?: string;
+  target?: string;
+};
+
+type DeploymentManifestLike = {
+  files?: DeploymentFileLike[];
+};
+
+/**
+ * UE4SS mod directory names that this deployment actually delivered, taken only
+ * from the Vortex deployment manifest. Manual directories on disk are NOT
+ * deployment evidence and must never be inferred here.
+ */
+function deployedUe4ssModDirs(deployment: unknown): string[] {
+  const files = (
+    deployment as DeploymentManifestLike | undefined
+  )?.files;
+
+  if (!Array.isArray(files)) {
     return [];
   }
-  const skip = new Set(['mods.txt', 'mods.json', 'shared']);
-  const candidates = entries.filter((e: string) => !skip.has(e));
-  const checked = await Promise.all(
-    candidates.map(async (entry: string) => {
-      try {
-        const stat = (await fs.statAsync(`${modsDir}/${entry}`)) as {
-          isDirectory: () => boolean;
-        };
-        return stat.isDirectory() ? entry : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return checked.filter((e): e is string => e !== null);
+
+  const dirs = new Map<string, string>();
+
+  for (const file of files) {
+    const rel = norm(String(file?.relPath ?? ''));
+    if (rel.length === 0) continue;
+
+    const rooted = rel.match(
+      /(?:^|\/)(?:ue4ss\/)?Mods\/([^/]+)\//i,
+    );
+    const modRoot = rel.match(
+      /^([^/]+)\/(?:Scripts\/|enabled\.txt(?:$|\/))/i,
+    );
+
+    const name = rooted?.[1] ?? modRoot?.[1];
+    if (!name) continue;
+
+    const key = name.toLowerCase();
+    if (!dirs.has(key)) {
+      dirs.set(key, name);
+    }
+  }
+
+  return [...dirs.values()];
 }
 
 /**
- * Idempotent mods.txt merge: add missing mod dirs as enabled; never erase
- * existing Ultra+/manual lines; do not reorder unrelated entries.
+ * Idempotent mods.txt merge: append only mod directories present in this
+ * deployment's manifest as enabled; never erase existing Ultra+/manual lines,
+ * comments, or ordering. Exits without writing when the manifest carries no
+ * usable UE4SS files or the file cannot be read.
  */
 export async function regenerateModsTxt(ctx: {
   profileId: string;
@@ -693,31 +720,61 @@ export async function regenerateModsTxt(ctx: {
   if (!discovery?.path) return;
 
   const modsDir = ue4ssModsDir(discovery.path);
-  const dirs = await listModDirs(modsDir);
-  if (dirs.length === 0) return;
+  const requiredDirs = deployedUe4ssModDirs(ctx.deployment);
+  if (requiredDirs.length === 0) return;
 
   let existing = '';
   try {
     existing = await readFile(join(modsDir, 'mods.txt'), 'utf8');
-  } catch {
-    existing = '';
-  }
-
-  const lines = existing.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  const have = new Set(
-    lines.map((l) => l.split(':')[0]?.trim()).filter(Boolean) as string[],
-  );
-
-  let changed = false;
-  for (const dir of dirs) {
-    if (!have.has(dir)) {
-      lines.push(`${dir} : 1`);
-      changed = true;
+  } catch (err) {
+    if (nodeErrorCode(err) !== 'ENOENT') {
+      log('warn', 'mortalshell2: unable to read mods.txt; leaving it unchanged', {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return;
     }
   }
-  if (!changed) return;
 
-  await fs.writeFileAsync(join(modsDir, 'mods.txt'), `${lines.join('\n')}\n`);
+  const existingNames = new Set<string>();
+
+  for (const line of existing.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (
+      trimmed.length === 0
+      || trimmed.startsWith('#')
+      || trimmed.startsWith(';')
+    ) {
+      continue;
+    }
+
+    const match = line.match(/^\s*([^:]+?)\s*:/);
+    if (match?.[1]) {
+      existingNames.add(match[1].trim().toLowerCase());
+    }
+  }
+
+  const missing = requiredDirs.filter(
+    (name) => !existingNames.has(name.toLowerCase()),
+  );
+
+  if (missing.length === 0) {
+    return;
+  }
+
+  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
+  const prefix =
+    existing.length === 0
+      ? ''
+      : existing.endsWith('\n')
+        ? existing
+        : existing + eol;
+
+  const next =
+    prefix
+    + missing.map((name) => `${name} : 1`).join(eol)
+    + eol;
+
+  await fs.writeFileAsync(join(modsDir, 'mods.txt'), next);
 }
 
 /** Standard local ReShade proxy module names (installed under graphics-API filenames). */
