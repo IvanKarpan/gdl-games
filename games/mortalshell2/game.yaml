@@ -734,7 +734,7 @@ tests:
           - ${pakModsPath}/OrdinaryAsset.ucas
           - ${pakModsPath}/OrdinaryAsset.utoc
 
-    # --- Current beta catalogue (Nexus mortalshell2, listings captured 2026-08-16) ---
+    # --- Retail-validated Nexus catalogue (listings captured 2026-08-16; tested on retail 2026-08-17) ---
 
     # Nexus mod 2 (No-HUD-No-Effects / ShaderToggler v0.2) — install-root-relative;
     # the whole tree incl. top-level docs must stay intact under the install root.
