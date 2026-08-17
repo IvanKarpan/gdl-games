@@ -34,8 +34,8 @@ export const GAME_ID = 'mortalshell2';
  */
 export const DML_NEXUS_MOD_ID = 4;
 export const UE4SS_NEXUS_MOD_ID = 5;
-/** Official ReShade site — preset mods need the runtime, which presets do not ship. */
-export const RESHADE_SITE = 'https://reshade.me/';
+/** Stable official ReShade downloads page — presets do not include the runtime. */
+export const RESHADE_SITE = 'https://reshade.me/#download';
 
 const BPMOD_LOADER_DIR = 'BPModLoaderMod';
 
@@ -1081,7 +1081,7 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
     noDismiss: true,
     actions: [
       {
-        title: 'Open reshade.me',
+        title: 'Open ReShade downloads',
         action: (dismiss: () => void) => {
           void util.opn(RESHADE_SITE).finally(() => dismiss());
         },
