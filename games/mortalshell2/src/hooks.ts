@@ -27,7 +27,7 @@ export const GAME_ID = 'mortalshell2';
 
 /**
  * Nexus mod ids on mortalshell2 (verified against live packages):
- *   5 = UE4SS runtime (dwmapi + ue4ss/, includes BPModLoaderMod) — LogicMods Fix target
+ *   5 = UE4SS runtime (dwmapi + ue4ss/, includes BPModLoaderMod)
  *   4 = DmgModLoader (DML) — IoStore paks → Content/Paks/dml/ (NOT ~mods); not the Fix path
  * Microsoft DirectML lives at Binaries/Win64/DML — ignore for loader detection.
  */
@@ -1589,6 +1589,88 @@ export type DependencyAdapterResult = {
 };
 
 /**
+ * Enabled installed mods from the one exact active MS2 profile. This is kept
+ * separate from deployment provenance: explicit dependency mod types can be
+ * assessed even when a current deployment manifest has no paths for them.
+ */
+function enabledInstalledMods(
+  api: types.IExtensionApi,
+): Array<[string, InstalledModLike]> {
+  const profile = getActiveMs2Profile(api);
+  if (!profile) return [];
+
+  try {
+    const state = api.getState() as {
+      persistent?: { mods?: Record<string, Record<string, InstalledModLike>> };
+    };
+    const mods = state.persistent?.mods?.[GAME_ID] ?? {};
+
+    return Object.entries(mods).filter(([modId, mod]) =>
+      Boolean(mod)
+      && mod.state !== 'uninstalled'
+      && profile.modState?.[modId]?.enabled === true,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Stable simultaneous de-duplication key; unresolved warnings are never suppressed. */
+export function dependencyNotificationId(
+  decision: DependencyDecision,
+  identity: string,
+): string {
+  return `mortalshell2:dependency:${decision.kind}:${identity}`;
+}
+
+type DependencyNotificationInput = {
+  label: string;
+  identity: string;
+  decision: DependencyDecision;
+  ue4ssOwnership?: Ue4ssOwnership;
+};
+
+/**
+ * Local GDL's vortex-api declaration and mock leave notifications intentionally
+ * opaque, so use their existing record-shaped adapter at this narrow boundary.
+ */
+type DependencyNotificationApi = types.IExtensionApi & {
+  sendNotification?: (notification: Record<string, unknown>) => void;
+};
+
+function sendDependencyNotification(
+  api: types.IExtensionApi,
+  input: DependencyNotificationInput,
+): void {
+  const notificationApi = api as DependencyNotificationApi;
+  if (typeof notificationApi.sendNotification !== 'function') return;
+
+  const actions: Array<{ title: string; action: () => void }> = [];
+  if (input.decision.kind === 'install-dml') {
+    actions.push({
+      title: 'Install DML',
+      action: () => { void installDmlFromNexus(api); },
+    });
+  } else if (input.decision.kind === 'install-ue4ss') {
+    actions.push({
+      title: 'Install UE4SS',
+      action: () => { void installUe4ssFromNexus(api); },
+    });
+  }
+
+  notificationApi.sendNotification({
+    id: dependencyNotificationId(input.decision, input.identity),
+    type: 'warning',
+    title: 'Mortal Shell II mod dependency',
+    message: dependencyFailureMessage(input.label, input.decision, {
+      ue4ssOwnership: input.ue4ssOwnership,
+    }),
+    allowSuppress: false,
+    actions,
+  });
+}
+
+/**
  * Single Vortex-state → pure-engine adapter (Package-04). Reactive UX, the
  * IModHealthCheck wrapper, and any future consumer all go through here so there
  * is exactly one framework-state decision path: live Package-03 assessments
@@ -1706,6 +1788,41 @@ function dependencyFailureMessage(
         : `${label} requires UE4SS, but the manual/external runtime is incomplete. Repair that runtime; Vortex will not overwrite it automatically.`;
     default:
       return `${label} dependency is satisfied.`;
+  }
+}
+
+/**
+ * Emit repeatable warnings for enabled installed mods whose framework decision
+ * is unresolved. Deployment provenance is read only from the shared Package-03
+ * resolver; lifecycle composition is intentionally deferred to Task 8.
+ */
+export async function processReactiveDependencies(ctx: {
+  profileId: string;
+  deployment: unknown;
+  api: unknown;
+}): Promise<void> {
+  const api = ctx.api as types.IExtensionApi;
+  if (!getActiveMs2Profile(api)) return;
+
+  const deployed = resolveActiveDeploymentMods(api, ctx.deployment);
+
+  for (const [modId, mod] of enabledInstalledMods(api)) {
+    const files = deployed.get(modId)?.files ?? [];
+    const dependency = classifyDependency(mod.type, files, MOD_TYPE_GROUPS);
+    if (dependency === 'none') continue;
+
+    const result = await dependencyDecisionForInstalledMod(api, modId, files);
+    if (
+      result.decision.kind === 'not-applicable'
+      || result.decision.kind === 'satisfied'
+    ) continue;
+
+    sendDependencyNotification(api, {
+      label: result.label,
+      identity: result.identity,
+      decision: result.decision,
+      ue4ssOwnership: result.ue4ssOwnership,
+    });
   }
 }
 
@@ -1950,4 +2067,3 @@ export const ue4ssOwnershipCheck = makeModHealthCheck({
     return { ok: false, message: issues.join(' '), severity: 'error' };
   },
 });
-
