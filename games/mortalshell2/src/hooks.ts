@@ -1497,10 +1497,14 @@ export function dependencyNotificationId(
   return `mortalshell2:dependency:${decision.kind}:${identity}`;
 }
 
+const DEPENDENCY_NOTIFICATION_PREFIX = 'mortalshell2:dependency:';
+
 type DependencyNotificationInput = {
   label: string;
   identity: string;
   decision: DependencyDecision;
+  modId: string;
+  files: readonly string[];
   ue4ssOwnership?: Ue4ssOwnership;
 };
 
@@ -1512,6 +1516,28 @@ type DependencyNotificationApi = types.IExtensionApi & {
   sendNotification?: (notification: Record<string, unknown>) => void;
 };
 
+function staleSafeInstallAction(
+  api: types.IExtensionApi,
+  input: DependencyNotificationInput,
+  expectedKind: 'install-dml' | 'install-ue4ss',
+): (dismiss: () => void) => void {
+  return (dismiss) => {
+    dismiss();
+    void (async () => {
+      if (!strictActiveProfileModEnabled(api, input.modId)) return;
+
+      const current = await dependencyDecisionForInstalledMod(api, input.modId, input.files);
+      if (current.decision.kind !== expectedKind) return;
+
+      if (expectedKind === 'install-dml') {
+        await installDmlFromNexus(api);
+      } else {
+        await installUe4ssFromNexus(api);
+      }
+    })();
+  };
+}
+
 function sendDependencyNotification(
   api: types.IExtensionApi,
   input: DependencyNotificationInput,
@@ -1519,16 +1545,16 @@ function sendDependencyNotification(
   const notificationApi = api as DependencyNotificationApi;
   if (typeof notificationApi.sendNotification !== 'function') return;
 
-  const actions: Array<{ title: string; action: () => void }> = [];
+  const actions: Array<{ title: string; action: (dismiss: () => void) => void }> = [];
   if (input.decision.kind === 'install-dml') {
     actions.push({
       title: 'Install DML',
-      action: () => { void installDmlFromNexus(api); },
+      action: staleSafeInstallAction(api, input, 'install-dml'),
     });
   } else if (input.decision.kind === 'install-ue4ss') {
     actions.push({
       title: 'Install UE4SS',
-      action: () => { void installUe4ssFromNexus(api); },
+      action: staleSafeInstallAction(api, input, 'install-ue4ss'),
     });
   }
 
@@ -1677,9 +1703,26 @@ export async function processReactiveDependencies(ctx: {
   api: unknown;
 }): Promise<void> {
   const api = ctx.api as types.IExtensionApi;
-  if (!getActiveMs2Profile(api)) return;
+  let state: {
+    settings?: { profiles?: { activeProfileId?: unknown } };
+    persistent?: { profiles?: Record<string, ActiveProfileLike> };
+  };
+  try {
+    state = api.getState() as typeof state;
+  } catch {
+    return;
+  }
+
+  const activeProfileId = state.settings?.profiles?.activeProfileId;
+  if (
+    typeof activeProfileId !== 'string'
+    || activeProfileId.length === 0
+    || activeProfileId !== ctx.profileId
+    || state.persistent?.profiles?.[activeProfileId]?.gameId !== GAME_ID
+  ) return;
 
   const deployed = resolveActiveDeploymentMods(api, ctx.deployment);
+  const desired = new Map<string, DependencyNotificationInput>();
 
   for (const [modId, mod] of enabledInstalledMods(api)) {
     const files = deployed.get(modId)?.files ?? [];
@@ -1695,12 +1738,29 @@ export async function processReactiveDependencies(ctx: {
       continue;
     }
 
-    sendDependencyNotification(api, {
+    const input: DependencyNotificationInput = {
       label: result.label,
       identity: result.identity,
       decision: result.decision,
+      modId,
+      files,
       ue4ssOwnership: result.ue4ssOwnership,
-    });
+    };
+    desired.set(dependencyNotificationId(result.decision, result.identity), input);
+  }
+
+  const notificationState = state as {
+    session?: { notifications?: { notifications?: Record<string, unknown> } };
+  };
+  const activeNotifications = notificationState.session?.notifications?.notifications ?? {};
+  for (const id of Object.keys(activeNotifications)) {
+    if (id.startsWith(DEPENDENCY_NOTIFICATION_PREFIX) && !desired.has(id)) {
+      dismissNotification(api, id);
+    }
+  }
+
+  for (const input of desired.values()) {
+    sendDependencyNotification(api, input);
   }
 }
 

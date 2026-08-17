@@ -25,8 +25,8 @@
 #
 # Other notes:
 #   - Standard asset paks → Content/Paks/~mods (matches Ultra+ layout).
-#   - LogicMods → Content/Paks/LogicMods/<ModName>/ — need enabled BPModLoaderMod under ue4ss/Mods
-#     (included in Nexus mortalshell2/mods/5). Bare UE4SS/Ultra+ without that Lua mod ≠ enough.
+#   - LogicMods → Content/Paks/LogicMods/<ModName>/ — need healthy DML or enabled BPModLoaderMod
+#     under ue4ss/Mods (included in Nexus mortalshell2/mods/5). Bare UE4SS/Ultra+ without that Lua mod ≠ enough.
 #   - Full-release install folder name is unverified — do not assume beta path identity.
 # Contribution backlog / publish checklist: PLAN.md (working notes; not in the zip).
 # Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
