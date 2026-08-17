@@ -1337,6 +1337,7 @@ const NO_FRAMEWORK_DEPENDENCY_TYPES = new Set([
   'mortalshell2-pak',
   'mortalshell2-binaries',
   'mortalshell2-reshade-preset',
+  'mortalshell2-unsupported',
   'mortalshell2-ue4ss-framework',
   'mortalshell2-dml-framework',
   'mortalshell2-dml-tree',
@@ -1498,6 +1499,47 @@ export function dependencyNotificationId(
 }
 
 const DEPENDENCY_NOTIFICATION_PREFIX = 'mortalshell2:dependency:';
+const UNSUPPORTED_MOD_TYPE = 'mortalshell2-unsupported';
+
+type UnsupportedNotificationInput = {
+  label: string;
+  identity: string;
+};
+
+function unsupportedNotificationId(identity: string): string {
+  return `mortalshell2:unsupported:${identity}`;
+}
+
+function sendUnsupportedWarning(
+  api: types.IExtensionApi,
+  input: UnsupportedNotificationInput,
+): void {
+  const id = unsupportedNotificationId(input.identity);
+  if (notificationSuppressed(api, id)) return;
+
+  const notificationApi = api as DependencyNotificationApi;
+  if (typeof notificationApi.sendNotification !== 'function') return;
+
+  notificationApi.sendNotification({
+    id,
+    type: 'warning',
+    title: 'Mortal Shell II unsupported mod',
+    message:
+      `${input.label} is recognized and deploys its archive tree unchanged, but `
+      + "Package 05 does not service its functionality. Please read the mod author's instructions.",
+    allowSuppress: false,
+  });
+
+  const makeAction = getSuppressNotificationAction();
+  if (typeof makeAction !== 'function') {
+    log(
+      'warn',
+      'mortalshell2: notification suppression action unavailable; unsupported-mod warning will not be persisted',
+    );
+    return;
+  }
+  api.store.dispatch(makeAction(id, true) as never);
+}
 
 type DependencyNotificationInput = {
   label: string;
@@ -1723,9 +1765,25 @@ export async function processReactiveDependencies(ctx: {
 
   const deployed = resolveActiveDeploymentMods(api, ctx.deployment);
   const desired = new Map<string, DependencyNotificationInput>();
+  const unsupported = new Map<string, UnsupportedNotificationInput>();
   const activationReminders: DependencyAdapterResult[] = [];
 
   for (const [modId, mod] of enabledInstalledMods(api)) {
+    if (mod.type === UNSUPPORTED_MOD_TYPE) {
+      const nexusModId =
+        typeof mod.attributes?.modId === 'number'
+          ? mod.attributes.modId
+          : undefined;
+      const identity = stableModIdentity({ vortexModId: modId, nexusModId });
+      const label = notificationSafeLabel({
+        vortexModId: modId,
+        name: mod.attributes?.name,
+        modName: mod.attributes?.modName,
+      });
+      unsupported.set(unsupportedNotificationId(identity), { label, identity });
+      continue;
+    }
+
     const files = deployed.get(modId)?.files ?? [];
     const dependency = classifyDependency(mod.type, files, MOD_TYPE_GROUPS);
     if (dependency === 'none') continue;
@@ -1764,6 +1822,10 @@ export async function processReactiveDependencies(ctx: {
 
   for (const input of desired.values()) {
     sendDependencyNotification(api, input);
+  }
+
+  for (const input of unsupported.values()) {
+    sendUnsupportedWarning(api, input);
   }
 
   for (const result of activationReminders) {

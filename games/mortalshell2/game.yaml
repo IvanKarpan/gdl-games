@@ -120,6 +120,11 @@ modTypes:
       path: "${pakModsPath}",
     }
   - {
+      id: mortalshell2-unsupported,
+      name: "Recognized but unsupported payload",
+      path: "${pakModsPath}",
+    }
+  - {
       id: mortalshell2-binaries,
       name: "Binaries add-on (ReShade / RenoDX)",
       path: "${win64Path}",
@@ -191,6 +196,26 @@ installers:
     take: parent
     placeAt: "${dmlPath}"
     modType: mortalshell2-dml-framework
+
+  # --- 19: UE4SS mod plus sibling shared dependency tree ---
+  # Nexus mod 20 optional file 29 ships MortalShell2Mod/ and shared/ as peers.
+  # Keep the complete archive root so ModMenu is not truncated by the generic
+  # ModName/Scripts rule below.
+  - id: ue4ss-mod-shared
+    priority: 19
+    when:
+      all:
+        - { hasFile: "MortalShell2Mod/Scripts/main.lua" }
+        - { hasFile: "shared/ModMenu/ModMenu.lua" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
+    anchor: "MortalShell2Mod/Scripts/main.lua"
+    take: archive-root
+    placeAt: "${ue4ssModsPath}"
+    modType: mortalshell2-ue4ss-mod
 
   # --- 20: UE4SS mod already rooted at ue4ss/Mods/... ---
   - id: ue4ss-mod-rooted
@@ -316,6 +341,62 @@ installers:
     take: parent
     placeAt: "${win64Path}"
     modType: mortalshell2-reshade-preset
+
+  # --- 29: recognized but unsupported top-level Engine.ini ---
+  # Nexus mods 13 and 17 currently ship this exact strong signature. Preserve
+  # the archive tree at the default ~mods path; functionality is not serviced.
+  - id: unsupported-engine-ini
+    priority: 29
+    when: { hasFile: "Engine.ini" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "Content/**" }
+        - { hasFile: "Binaries/**" }
+        - { hasFile: "**/*.{pak,ucas,utoc}" }
+        - { hasFile: "**/{dxgi.dll,dwmapi.dll,UE4SS.dll}" }
+        # Locked archives contain this one path only; any sibling stays unknown.
+        - { matches: "^(?!Engine\\.ini$).*" }
+    anchor: "Engine.ini"
+    take: archive-root
+    placeAt: "${pakModsPath}"
+    modType: mortalshell2-unsupported
+
+  # --- 29: recognized but unsupported SaveGames payload ---
+  # Nexus mod 23 file 32 exact signature; preserve the complete SaveGames tree.
+  - id: unsupported-save
+    priority: 29
+    when: { hasFile: "SaveGames/WorldState_0.sav" }
+    unless:
+      any:
+        - { hasFile: "MortalShell2/**" }
+        - { hasFile: "Engine/**" }
+        - { hasFile: "Content/**" }
+        - { hasFile: "Binaries/**" }
+        - { hasFile: "**/*.{pak,ucas,utoc}" }
+        - { hasFile: "**/{dxgi.dll,dwmapi.dll,UE4SS.dll}" }
+        # Locked archive contains this one path only; any sibling stays unknown.
+        - { matches: "^(?!SaveGames/WorldState_0\\.sav$).*" }
+    anchor: "SaveGames/WorldState_0.sav"
+    take: archive-root
+    placeAt: "${pakModsPath}"
+    modType: mortalshell2-unsupported
+
+  # --- 29: recognized but unsupported standalone Electron remapper ---
+  # Require three independent exact markers from Nexus mod 8 file 12 so generic
+  # Electron archives and arbitrary Chromium .pak files remain fail-closed.
+  - id: unsupported-external-app
+    priority: 29
+    when:
+      all:
+        - { hasFile: "**/Witcher Remapper – Mortal Shell 2.exe" }
+        - { hasFile: "**/resources/app.asar" }
+        - { hasFile: "**/resources/data/IMC_Default_Gamepad.json" }
+    anchor: "**/resources/app.asar"
+    take: archive-root
+    placeAt: "${pakModsPath}"
+    modType: mortalshell2-unsupported
 
   # --- 10: game-root-relative (MortalShell2/ or Engine/) ---
   - id: root
@@ -870,3 +951,91 @@ tests:
         modType: mortalshell2-contentfolder
         plan:
           - ${gamePath}/Config/Unrelated.ini
+
+    # Nexus mod 20 optional file 29 — mod-only UE4SS payload with a sibling
+    # shared/ModMenu dependency. The complete archive root must land under
+    # ue4ss/Mods; selecting only MortalShell2Mod would truncate the sibling.
+    - name: "ue4ss-mod-shared: Nexus mod 20 optional keeps sibling shared tree"
+      archive:
+        - MortalShell2Mod/enabled.txt
+        - MortalShell2Mod/Scripts/main.lua
+        - shared/ModMenu/ModMenu.lua
+      expect:
+        matched: ue4ss-mod-shared
+        modType: mortalshell2-ue4ss-mod
+        plan:
+          - ${ue4ssModsPath}/MortalShell2Mod/enabled.txt
+          - ${ue4ssModsPath}/MortalShell2Mod/Scripts/main.lua
+          - ${ue4ssModsPath}/shared/ModMenu/ModMenu.lua
+
+    # Nexus mods 13 file 20 and 17 file 25 — exact current archives contain only
+    # one top-level Engine.ini. Recognize this strong shape without relocating or
+    # claiming functional support for the payload.
+    - name: "unsupported-engine-ini: Nexus mods 13 and 17 exact flat Engine.ini"
+      archive:
+        - Engine.ini
+      expect:
+        matched: unsupported-engine-ini
+        modType: mortalshell2-unsupported
+        plan:
+          - ${pakModsPath}/Engine.ini
+
+    # Nexus mod 23 file 32 — exact current archive is a single save under the
+    # SaveGames/ tree. Recognition preserves that tree at the default path only.
+    - name: "unsupported-save: Nexus mod 23 exact SaveGames tree"
+      archive:
+        - SaveGames/WorldState_0.sav
+      expect:
+        matched: unsupported-save
+        modType: mortalshell2-unsupported
+        plan:
+          - ${pakModsPath}/SaveGames/WorldState_0.sav
+
+    # Nexus mod 8 file 12 — literal paths from the current 92-entry Electron
+    # remapper archive. Representative leaves span the wrapper root, Chromium
+    # resources, application data, and bundled export tool so root truncation is
+    # observable without mistaking Chromium .pak files for game assets.
+    - name: "unsupported-external-app: Nexus mod 8 exact Electron remapper tree"
+      archive:
+        - Witcher Remapper for Mortal Shell 2 v1.1/Witcher Remapper – Mortal Shell 2.exe
+        - Witcher Remapper for Mortal Shell 2 v1.1/chrome_100_percent.pak
+        - Witcher Remapper for Mortal Shell 2 v1.1/locales/en-US.pak
+        - Witcher Remapper for Mortal Shell 2 v1.1/resources/app.asar
+        - Witcher Remapper for Mortal Shell 2 v1.1/resources/data/IMC_Default_Gamepad.json
+        - Witcher Remapper for Mortal Shell 2 v1.1/resources/witcher_export_tool/MortalShell2.usmap
+      expect:
+        matched: unsupported-external-app
+        modType: mortalshell2-unsupported
+        plan:
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/Witcher Remapper – Mortal Shell 2.exe
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/chrome_100_percent.pak
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/locales/en-US.pak
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/resources/app.asar
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/resources/data/IMC_Default_Gamepad.json
+          - ${pakModsPath}/Witcher Remapper for Mortal Shell 2 v1.1/resources/witcher_export_tool/MortalShell2.usmap
+
+    # Nexus mod 3 optional file 3 — opaque all-in-one root tree. Installation is
+    # complete-tree only: runtime, consumer mod, signature, and top-level sibling
+    # files remain together without Package 05 ownership/consistency servicing.
+    - name: "root: Nexus mod 3 optional opaque all-in-one keeps complete tree"
+      archive:
+        - MortalShell2/Binaries/Win64/dwmapi.dll
+        - MortalShell2/Binaries/Win64/ue4ss/UE4SS-settings.ini
+        - MortalShell2/Binaries/Win64/ue4ss/UE4SS.dll
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/enabled.txt
+        - MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/Scripts/main.lua
+        - MortalShell2/Binaries/Win64/ue4ss/UE4SS_Signatures/StaticConstructObject.lua
+        - README.txt
+        - UE4SS_LICENSE.txt
+      expect:
+        matched: root
+        modType: mortalshell2-root
+        plan:
+          - ${installPath}/MortalShell2/Binaries/Win64/dwmapi.dll
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/UE4SS-settings.ini
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/UE4SS.dll
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/enabled.txt
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/Mods/AutoGoldPickup/Scripts/main.lua
+          - ${installPath}/MortalShell2/Binaries/Win64/ue4ss/UE4SS_Signatures/StaticConstructObject.lua
+          - ${installPath}/README.txt
+          - ${installPath}/UE4SS_LICENSE.txt
