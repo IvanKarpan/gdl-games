@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "mortalshell2",
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "inputs": [
+        "gameSource",
+        "gdlToolchain",
+        "{projectRoot}/project.json",
+        "{projectRoot}/vitest.config.ts"
+      ],
+      "options": {
+        "command": "vitest run --config games/mortalshell2/vitest.config.ts"
+      }
+    }
+  }
+}

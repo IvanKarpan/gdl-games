@@ -11,8 +11,8 @@ whole repo (the `gdl/` submodule), and **one** set of orchestration / CI / packa
 root — no per-game `package.json`, `vitest.config`, or workflow files.
 
 Task running is handled by [Nx](https://nx.dev): each `games/*/game.yaml` is detected as an Nx
-project (via an inference plugin — no per-game config), giving cached, parallel `build`/`test`/
-`package` targets and `nx affected`.
+project via an inference plugin, giving cached, parallel `build`/`test`/`package` targets and
+`nx affected`. A game may add a local `project.json` when its source tests need a custom target.
 
 ```
 gdl-games/

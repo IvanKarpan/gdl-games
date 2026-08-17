@@ -32,7 +32,7 @@
 # Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
 
 gdl: 1
-version: 0.1.5
+version: 1.0.0
 
 game:
   id: mortalshell2
@@ -192,10 +192,7 @@ installers:
         - { hasFile: "Engine/**" }
         - { hasFile: "**/Scripts/*.lua" }
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll}" }
-    anchor: "**/dml.pak"
-    take: parent
-    placeAt: "${paksPath}"
-    destinationPrefix: dml
+    install: { hook: installDmlFramework }
     modType: mortalshell2-dml-framework
 
   # --- 19: UE4SS mod plus sibling shared dependency tree ---
@@ -213,10 +210,7 @@ installers:
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
-    anchor: "MortalShell2Mod/Scripts/main.lua"
-    take: archive-root
-    placeAt: "${win64Path}"
-    destinationPrefix: ue4ss/Mods
+    install: { hook: installUe4ssModShared }
     modType: mortalshell2-ue4ss-mod
 
   # --- 20: UE4SS mod already rooted at ue4ss/Mods/... ---
@@ -224,10 +218,7 @@ installers:
     priority: 20
     when: { hasFile: "**/ue4ss/Mods/**/Scripts/*.lua" }
     unless: { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
-    anchor: "**/ue4ss/Mods/"
-    take: self
-    placeAt: "${win64Path}"
-    destinationPrefix: ue4ss
+    install: { hook: installUe4ssModRooted }
     modType: mortalshell2-ue4ss-tree
 
   # --- 21: UE4SS mod rooted at Mods/ModName/... ---
@@ -238,10 +229,7 @@ installers:
       any:
         - { hasFile: "**/ue4ss/Mods/**/Scripts/*.lua" }
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
-    anchor: "**/Mods/"
-    take: self
-    placeAt: "${win64Path}"
-    destinationPrefix: ue4ss
+    install: { hook: installUe4ssModModsPrefix }
     modType: mortalshell2-ue4ss-tree
 
   # --- 22: UE4SS mod ModName/Scripts/main.lua ---
@@ -255,10 +243,7 @@ installers:
         - { hasFile: "**/Mods/**/Scripts/*.lua" }
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
-    anchor: "**/Scripts/*.lua"
-    take: parent.parent
-    placeAt: "${win64Path}"
-    destinationPrefix: ue4ss/Mods
+    install: { hook: installUe4ssModScripts }
     modType: mortalshell2-ue4ss-mod
 
   # --- 23: UE4SS mod enabled.txt only ---
@@ -271,10 +256,7 @@ installers:
         - { hasFile: "**/{dwmapi.dll,UE4SS.dll,ue4ss.dll}" }
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
-    anchor: "**/enabled.txt"
-    take: parent.parent
-    placeAt: "${win64Path}"
-    destinationPrefix: ue4ss/Mods
+    install: { hook: installUe4ssModEnabled }
     modType: mortalshell2-ue4ss-mod
 
   # --- 24: archive already containing Content/Paks/LogicMods ---
@@ -324,7 +306,7 @@ installers:
         - { hasFile: "MortalShell2/**" }
         - { hasFile: "Engine/**" }
         - { hasFile: "**/{dwmapi.dll,dxgi.dll,UE4SS.dll}" }
-    copy: { stripCommonRoot: false, destinationPrefix: LogicMods }
+    install: { hook: installLogicModsRootTriplet }
     modType: mortalshell2-logicmods
 
   # --- 27: ReShade preset shipped as a flat *reshade*.ini at the archive root ---
@@ -385,9 +367,7 @@ installers:
         # Accept only Vortex's harmless directory marker plus the exact save.
         # Any root sibling or nested SaveGames payload stays unknown.
         - { matches: "^(?!(?:SaveGames/?|SaveGames/WorldState_0\\.sav)$).*" }
-    anchor: "SaveGames/WorldState_0.sav"
-    take: archive-root
-    placeAt: "${pakModsPath}"
+    install: { hook: installUnsupportedSave }
     modType: mortalshell2-unsupported
 
   # --- 29: recognized but unsupported standalone Electron remapper ---
@@ -525,32 +505,11 @@ toolbarActions:
 
 tests:
   # Current Nexus catalogue is reconciled during Package 05; local cache remains ignored.
+  # Custom installer placement and complete static corpus attribution are
+  # exercised in src/installers.test.ts; base GDL's generated static planner
+  # does not execute install hooks.
   corpus: nexus
   cases:
-    # 2. UE4SS mod Scripts/
-    - name: "ue4ss-mod: ModName/Scripts/main.lua"
-      archive:
-        - CoolMod/Scripts/main.lua
-        - CoolMod/enabled.txt
-      expect:
-        matched: ue4ss-mod-scripts
-        modType: mortalshell2-ue4ss-mod
-        plan:
-          - ${ue4ssModsPath}/CoolMod/Scripts/main.lua
-          - ${ue4ssModsPath}/CoolMod/enabled.txt
-
-    # 3. UE4SS mod already under ue4ss/Mods
-    - name: "ue4ss-mod: rooted ue4ss/Mods/ModName"
-      archive:
-        - ue4ss/Mods/CoolMod/Scripts/main.lua
-        - ue4ss/Mods/CoolMod/enabled.txt
-      expect:
-        matched: ue4ss-mod-rooted
-        modType: mortalshell2-ue4ss-tree
-        plan:
-          - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
-          - ${ue4ssRootPath}/Mods/CoolMod/enabled.txt
-
     # 4. Negative guard — named-folder triplet WITHOUT a LogicMods/ segment is an
     # ordinary asset set: it falls to ~mods (take-parent flattens the folder into
     # ~mods, same as the SomeMod_P case). No corpus mod ships this shape; Nexus
@@ -646,18 +605,6 @@ tests:
           - ${installPath}/MortalShell2/Content/Paks/~mods/foo_P.pak
           - ${installPath}/Engine/Content/bar.uasset
 
-    # 11. Single unnecessary wrapper directory around UE4SS mod
-    - name: "ue4ss-mod: wrapper directory stripped"
-      archive:
-        - wrapper/CoolMod/Scripts/main.lua
-        - wrapper/CoolMod/enabled.txt
-      expect:
-        matched: ue4ss-mod-scripts
-        modType: mortalshell2-ue4ss-mod
-        plan:
-          - ${ue4ssModsPath}/CoolMod/Scripts/main.lua
-          - ${ue4ssModsPath}/CoolMod/enabled.txt
-
     # 12. Ambiguous dwmapi + dxgi — valid coexistence; framework installer copies parent
     - name: "ue4ss-framework: dwmapi+dxgi same folder (not a conflict)"
       archive:
@@ -671,16 +618,6 @@ tests:
           - ${win64Path}/dwmapi.dll
           - ${win64Path}/dxgi.dll
           - ${win64Path}/ue4ss/UE4SS.dll
-
-    # 13. Duplicated nesting avoided for ue4ss/Mods rooting
-    - name: "ue4ss-mod: Mods/ModName does not double-nest"
-      archive:
-        - Mods/CoolMod/Scripts/main.lua
-      expect:
-        matched: ue4ss-mod-mods-prefix
-        modType: mortalshell2-ue4ss-tree
-        plan:
-          - ${ue4ssRootPath}/Mods/CoolMod/Scripts/main.lua
 
     # Nexus mod 5 (UE4SS for MortalShell2, full pack listing) — runtime + stock Mods
     # incl. BPModLoaderMod → Binaries/Win64, whole tree intact
@@ -745,25 +682,6 @@ tests:
           - ${paksPath}/LogicMods/AutoPickup/AutoPickup.ucas
           - ${paksPath}/LogicMods/AutoPickup/AutoPickup.utoc
 
-    - name: "dml-framework: flat dml + dmlcore_P to Content/Paks/dml"
-      archive:
-        - dml.pak
-        - dml.ucas
-        - dml.utoc
-        - dmlcore_P.pak
-        - dmlcore_P.ucas
-        - dmlcore_P.utoc
-      expect:
-        matched: dml-framework
-        modType: mortalshell2-dml-framework
-        plan:
-          - ${dmlPath}/dml.pak
-          - ${dmlPath}/dml.ucas
-          - ${dmlPath}/dml.utoc
-          - ${dmlPath}/dmlcore_P.pak
-          - ${dmlPath}/dmlcore_P.ucas
-          - ${dmlPath}/dmlcore_P.utoc
-
     # Nexus mod 4 (DmgModLoader v0.5, full pack listing) — dml/ subtree stays intact under Content/Paks
     - name: "dml-framework-rooted: Nexus mod 4 exact pack"
       archive:
@@ -817,22 +735,6 @@ tests:
           - ${pakModsPath}/OrdinaryAsset.utoc
 
     # --- Current beta catalogue (Nexus mortalshell2, listings captured 2026-08-16) ---
-
-    # Nexus mod 6 (AutoPickup) — the only LogicMod in the corpus: bare triplet at
-    # archive root → Content/Paks/LogicMods. copy-form destinations are relative to
-    # the LogicMods modType root.
-    - name: "logicmods-root-triplet: Nexus mod 6 AutoPickup flat triplet"
-      archive:
-        - AutoPickup.pak
-        - AutoPickup.ucas
-        - AutoPickup.utoc
-      expect:
-        matched: logicmods-root-triplet
-        modType: mortalshell2-logicmods
-        plan:
-          - LogicMods/AutoPickup.pak
-          - LogicMods/AutoPickup.ucas
-          - LogicMods/AutoPickup.utoc
 
     # Nexus mod 2 (No-HUD-No-Effects / ShaderToggler v0.2) — install-root-relative;
     # the whole tree incl. top-level docs must stay intact under the install root.
@@ -957,22 +859,6 @@ tests:
         plan:
           - ${gamePath}/Config/Unrelated.ini
 
-    # Nexus mod 20 optional file 29 — mod-only UE4SS payload with a sibling
-    # shared/ModMenu dependency. The complete archive root must land under
-    # ue4ss/Mods; selecting only MortalShell2Mod would truncate the sibling.
-    - name: "ue4ss-mod-shared: Nexus mod 20 optional keeps sibling shared tree"
-      archive:
-        - MortalShell2Mod/enabled.txt
-        - MortalShell2Mod/Scripts/main.lua
-        - shared/ModMenu/ModMenu.lua
-      expect:
-        matched: ue4ss-mod-shared
-        modType: mortalshell2-ue4ss-mod
-        plan:
-          - ${ue4ssModsPath}/MortalShell2Mod/enabled.txt
-          - ${ue4ssModsPath}/MortalShell2Mod/Scripts/main.lua
-          - ${ue4ssModsPath}/shared/ModMenu/ModMenu.lua
-
     # Nexus mods 13 file 20 and 17 file 25 — exact current archives contain only
     # one top-level Engine.ini. Recognize this strong shape without relocating or
     # claiming functional support for the payload.
@@ -984,30 +870,6 @@ tests:
         modType: mortalshell2-unsupported
         plan:
           - ${pakModsPath}/Engine.ini
-
-    # Nexus mod 23 file 32 — the real archive includes an explicit SaveGames
-    # directory entry. Preserve only its exact save beneath the default path.
-    - name: "unsupported-save: Nexus mod 23 real SaveGames directory entry"
-      archive:
-        - SaveGames
-        - SaveGames/WorldState_0.sav
-      expect:
-        matched: unsupported-save
-        modType: mortalshell2-unsupported
-        plan:
-          - ${pakModsPath}/SaveGames/WorldState_0.sav
-
-    # Vortex/archive tooling may spell the harmless directory node with a
-    # trailing slash; it must have identical routing and no marker payload.
-    - name: "unsupported-save: slash-form SaveGames directory entry"
-      archive:
-        - SaveGames/
-        - SaveGames/WorldState_0.sav
-      expect:
-        matched: unsupported-save
-        modType: mortalshell2-unsupported
-        plan:
-          - ${pakModsPath}/SaveGames/WorldState_0.sav
 
     # Nexus mod 8 file 12 — literal paths from the current 92-entry Electron
     # remapper archive. Representative leaves span the wrapper root, Chromium

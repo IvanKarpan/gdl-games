@@ -161,6 +161,223 @@ function norm(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+interface ArchiveEntry {
+  raw: string;
+  path: string;
+  segments: string[];
+  directory: boolean;
+}
+
+type InstallerInstruction =
+  | { type: 'copy'; source: string; destination: string }
+  | { type: 'setmodtype'; value: string };
+
+type InstallerResult = Promise<{ instructions: InstallerInstruction[] }>;
+
+type DestinationMapper = (
+  entry: ArchiveEntry,
+) => string | undefined;
+
+type DestinationMapperFactory = (
+  entries: readonly ArchiveEntry[],
+) => DestinationMapper | undefined;
+
+function normaliseInstallerPath(raw: string): string {
+  return norm(raw).replace(/^(?:\.\/)+/, '').replace(/\/{2,}/g, '/');
+}
+
+function safeRelativePath(path: string): boolean {
+  if (path.length === 0 || path.startsWith('/') || /^[a-z]:/i.test(path)) return false;
+  const segments = path.split('/').filter(Boolean);
+  return segments.length > 0 && segments.every((segment) => segment !== '.' && segment !== '..');
+}
+
+function archiveEntries(files: readonly string[]): ArchiveEntry[] | undefined {
+  const paths = files.map(normaliseInstallerPath);
+  if (paths.some((path) => !safeRelativePath(path))) return undefined;
+
+  // Some archive APIs expose directories as bare entries ("SaveGames") while
+  // others include a trailing slash. Build the descendant set once so both
+  // spellings are filtered without quadratic rescans.
+  const parentPaths = new Set<string>();
+  for (const path of paths) {
+    const withoutSlash = path.replace(/\/+$/, '');
+    for (let slash = withoutSlash.indexOf('/'); slash !== -1; slash = withoutSlash.indexOf('/', slash + 1)) {
+      parentPaths.add(withoutSlash.slice(0, slash).toLowerCase());
+    }
+  }
+
+  return files.map((raw, index) => {
+    const path = paths[index]!;
+    const withoutSlash = path.replace(/\/+$/, '');
+    return {
+      raw,
+      path: withoutSlash,
+      segments: withoutSlash.split('/').filter(Boolean),
+      directory: path.endsWith('/') || parentPaths.has(withoutSlash.toLowerCase()),
+    };
+  });
+}
+
+function prefixPath(prefix: string, relative: string): string {
+  return `${prefix}/${relative}`.replace(/\/{2,}/g, '/');
+}
+
+function stripLeadingSegments(
+  entry: ArchiveEntry,
+  rootSegments: readonly string[],
+): string | undefined {
+  if (rootSegments.length === 0) return entry.path;
+  if (entry.segments.length < rootSegments.length) return undefined;
+  for (let index = 0; index < rootSegments.length; index++) {
+    if (entry.segments[index] !== rootSegments[index]) return undefined;
+  }
+  return entry.segments.slice(rootSegments.length).join('/');
+}
+
+function shallowestEntry(
+  entries: readonly ArchiveEntry[],
+  predicate: (entry: ArchiveEntry) => boolean,
+): ArchiveEntry | undefined {
+  return entries.reduce<ArchiveEntry | undefined>((best, entry) => {
+    if (!predicate(entry)) return best;
+    return best === undefined || entry.segments.length < best.segments.length ? entry : best;
+  }, undefined);
+}
+
+function createInstallerHook(
+  modType: string,
+  prepareDestinationMapper: DestinationMapperFactory,
+) {
+  return async (
+    files: string[],
+    destinationPath: string,
+    gameId: string,
+  ): InstallerResult => {
+    void destinationPath;
+    if (gameId !== GAME_ID) return { instructions: [] };
+
+    const entries = archiveEntries(files);
+    if (entries === undefined) return { instructions: [] };
+    const destinationFor = prepareDestinationMapper(entries);
+    if (destinationFor === undefined) return { instructions: [] };
+
+    const copies: InstallerInstruction[] = [];
+    for (const entry of entries) {
+      if (entry.directory) continue;
+      const destination = destinationFor(entry);
+      if (destination === undefined) continue;
+      if (!safeRelativePath(destination)) return { instructions: [] };
+      copies.push({ type: 'copy', source: entry.raw, destination });
+    }
+
+    if (copies.length === 0) return { instructions: [] };
+    return {
+      instructions: [...copies, { type: 'setmodtype', value: modType }],
+    };
+  };
+}
+
+/** Flat DmgModLoader payload; the deployed mod type root remains Content/Paks. */
+export const installDmlFramework = createInstallerHook(
+  'mortalshell2-dml-framework',
+  (entries) => {
+    const anchor = shallowestEntry(
+      entries,
+      (candidate) =>
+        !candidate.directory && candidate.segments.at(-1)?.toLowerCase() === 'dml.pak',
+    );
+    if (anchor === undefined) return undefined;
+    const rootSegments = anchor.segments.slice(0, -1);
+    return (entry) => {
+      const relative = stripLeadingSegments(entry, rootSegments);
+      return relative === undefined ? undefined : prefixPath('dml', relative);
+    };
+  },
+);
+
+/** Mod 20's MortalShell2Mod + shared peers must remain one UE4SS Mods tree. */
+export const installUe4ssModShared = createInstallerHook(
+  'mortalshell2-ue4ss-mod',
+  () => (entry) => prefixPath('ue4ss/Mods', entry.path),
+);
+
+/** Archive already contains an ue4ss/Mods segment; discard only its wrapper. */
+export const installUe4ssModRooted = createInstallerHook(
+  'mortalshell2-ue4ss-tree',
+  () => (entry) => {
+    const index = entry.segments.findIndex(
+      (segment, segmentIndex) =>
+        segment.toLowerCase() === 'ue4ss' &&
+        entry.segments[segmentIndex + 1]?.toLowerCase() === 'mods',
+    );
+    if (index === -1) return undefined;
+    return entry.segments.slice(index).join('/');
+  },
+);
+
+/** Archive starts at Mods/ModName; add the missing ue4ss ancestor once. */
+export const installUe4ssModModsPrefix = createInstallerHook(
+  'mortalshell2-ue4ss-tree',
+  () => (entry) => {
+    const index = entry.segments.findIndex((segment) => segment.toLowerCase() === 'mods');
+    if (index === -1) return undefined;
+    return prefixPath('ue4ss', entry.segments.slice(index).join('/'));
+  },
+);
+
+/** ModName/Scripts payload, optionally under one or more wrapper directories. */
+export const installUe4ssModScripts = createInstallerHook(
+  'mortalshell2-ue4ss-mod',
+  (entries) => {
+    const anchor = shallowestEntry(
+      entries,
+      (candidate) =>
+        !candidate.directory &&
+        candidate.segments.at(-2)?.toLowerCase() === 'scripts' &&
+        candidate.segments.at(-1)?.toLowerCase().endsWith('.lua') === true,
+    );
+    if (anchor === undefined) return undefined;
+    const stripCount = Math.max(0, anchor.segments.length - 3);
+    const rootSegments = anchor.segments.slice(0, stripCount);
+    return (entry) => {
+      const relative = stripLeadingSegments(entry, rootSegments);
+      return relative === undefined ? undefined : prefixPath('ue4ss/Mods', relative);
+    };
+  },
+);
+
+/** enabled.txt-only UE4SS mod, with the same wrapper handling as the YAML rule. */
+export const installUe4ssModEnabled = createInstallerHook(
+  'mortalshell2-ue4ss-mod',
+  (entries) => {
+    const anchor = shallowestEntry(
+      entries,
+      (candidate) =>
+        !candidate.directory && candidate.segments.at(-1)?.toLowerCase() === 'enabled.txt',
+    );
+    if (anchor === undefined) return undefined;
+    const stripCount = Math.max(0, anchor.segments.length - 2);
+    const rootSegments = anchor.segments.slice(0, stripCount);
+    return (entry) => {
+      const relative = stripLeadingSegments(entry, rootSegments);
+      return relative === undefined ? undefined : prefixPath('ue4ss/Mods', relative);
+    };
+  },
+);
+
+/** Exact AutoPickup flat triplet; the YAML predicate owns the narrow signature. */
+export const installLogicModsRootTriplet = createInstallerHook(
+  'mortalshell2-logicmods',
+  () => (entry) => prefixPath('LogicMods', entry.path),
+);
+
+/** Exact unsupported save shape; directory entries are deliberately not payloads. */
+export const installUnsupportedSave = createInstallerHook(
+  'mortalshell2-unsupported',
+  () => (entry) => entry.path,
+);
+
 function isUe4ssDependentPath(file: string): boolean {
   const f = norm(file);
   // Narrow evidence — do not treat arbitrary .lua as UE4SS.

@@ -9,9 +9,16 @@ instructions only while working in this game directory.
 - Support retail Steam AppID `2584270` only. Steam discovery identifies the install
   root; the game itself keeps its internal `Sparta/MortalShell2` layout and the
   shipping executable under `MortalShell2/Binaries/Win64`.
-- Optional UE4SS, DML, and LogicMods destinations must be rooted at shipped
-  ancestors and use `destinationPrefix`. Managing a blank game must not scaffold
-  optional runtime directories; only the default `~mods` root may be created.
+- Optional UE4SS, DML, and LogicMods mod types stay rooted at shipped Win64/Paks
+  ancestors. Their narrow custom installer hooks add the optional child path to
+  each copy destination. Managing a blank game must not scaffold optional runtime
+  directories; only the default `~mods` root may be created.
+- Keep custom installer placement and the complete 20-record static attribution
+  check in `src/installers.test.ts`. Base GDL's generated static planner cannot
+  execute install hooks, while corpus execution replay exercises the real bundle.
+- `project.json` intentionally overrides only this game's inferred Nx test target
+  so the normal target runs both generated and `src/**/*.test.ts` suites through
+  the local Vitest config. Preserve the other inferred targets.
 - Preserve installer precedence, exact strong signatures, and fail-closed behavior.
   Do not broaden a known signature into a catch-all based on a weak filename.
 - Preserve runtime ownership and active-profile/deployment provenance. Never adopt,

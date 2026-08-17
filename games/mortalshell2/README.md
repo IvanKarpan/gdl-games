@@ -64,14 +64,17 @@ node tools/audit-docs.mjs
 
 ## Release decision
 
-**GO** — Package 05 retail release-candidate validation passed on 2026-08-17 for
-retail build `24772279`, Vortex `2.5.0`, and extension `0.1.5`
-(`7feadff2908def0d0124e8a424bccbd2d5d64317`). The validated artifact is
-`games/mortalshell2/out/mortalshell2-vortex-v0.1.5.zip`; its SHA-256 is a
-build-instance value and is recorded with the release handoff rather than here.
+**GO** — Package 05 manual retail validation passed on 2026-08-17 for retail
+build `24772279`, Vortex `2.5.0`, and the `0.1.5` release candidate. Extension
+`1.0.0` preserves those deployment paths through game-local installer hooks and
+passes the automated verification below. Its packaged artifact is
+`games/mortalshell2/out/mortalshell2-vortex-v1.0.0.zip`; the build-instance
+SHA-256 is recorded with the release handoff rather than here.
 
-Automated verification: 253 GDL tests, 37 generated extension tests, and 20/20
-matched Nexus corpus records, plus packaging and the documentation audit. Manual
+Automated verification: 246 GDL tests and 38 extension tests (28 generated plus
+10 source tests covering custom installers and, when the ignored local cache is
+present, static corpus attribution), with 20/20 matched Nexus corpus records,
+plus packaging and the documentation audit. Manual
 Vortex validation covered blank-game management, hardlink and symlink deployment,
 deploy/redeploy/purge/uninstall lifecycle, ordinary PAKs, UE4SS and DML/LogicMod
 dependencies, self-contained UE4SS bundles, ReShade presets and add-ons, and
