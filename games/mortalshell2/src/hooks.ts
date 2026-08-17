@@ -143,6 +143,13 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+function nodeErrorCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null || !('code' in err)) {
+    return undefined;
+  }
+  return String((err as { code?: unknown }).code);
+}
+
 function norm(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -239,6 +246,7 @@ export async function assessBpModLoader(
 
   const hasEnabledTxt = await pathExists(join(modDir, 'enabled.txt'));
   let modsTxtEnabled: boolean | null = null;
+  let modsTxtUnreadable = false;
   try {
     const txt = await readFile(join(ue4ssModsDir(discoveryPath), 'mods.txt'), 'utf8');
     const line = txt.split(/\r?\n/).find((l) => /^BPModLoaderMod\s*:/i.test(l.trim()));
@@ -246,12 +254,20 @@ export async function assessBpModLoader(
       const m = line.match(/:\s*(\d+)/);
       modsTxtEnabled = m ? m[1] !== '0' : true;
     }
-  } catch {
-    // no mods.txt
+  } catch (err) {
+    // ENOENT is a legitimate "no mods.txt" — other read failures must not be
+    // treated as enablement evidence.
+    if (nodeErrorCode(err) !== 'ENOENT') {
+      modsTxtUnreadable = true;
+      log.warn(
+        '[mortalshell2] UE4SS Mods/mods.txt is unreadable' +
+          ` (${String(nodeErrorCode(err) ?? err)}); assuming BPModLoaderMod is disabled.`,
+      );
+    }
   }
 
   let enabled = false;
-  if (modsTxtEnabled === false) {
+  if (modsTxtEnabled === false || modsTxtUnreadable) {
     enabled = false;
   } else if (modsTxtEnabled === true || hasEnabledTxt) {
     enabled = true;
