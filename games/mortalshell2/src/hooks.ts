@@ -13,6 +13,15 @@
 import { access, readFile, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { fs, log, selectors, types, util } from 'vortex-api';
+import {
+  classifyDependency,
+  decideDependency,
+  detectSelfContainedEvidence,
+  notificationSafeLabel,
+  stableModIdentity,
+  type DependencyDecision,
+  type DependencyKind,
+} from './dependencies';
 
 export const GAME_ID = 'mortalshell2';
 
@@ -715,47 +724,49 @@ function strongUe4ssModDir(
 }
 
 /**
- * Strict active-profile enablement for Package-03 provenance: resolve exactly
+ * Strict active-profile enablement for Package-03 provenance (shared with the
+ * Package-04 reactive decision adapter): resolve exactly
  * persistent.profiles[activeProfileId], require it to be a Mortal Shell II
  * profile, and require modState[modId].enabled === true in that profile.
  * Never falls back to another MS2 profile — legacy UX helpers may search, but
  * ownership reconciliation must not (a non-active profile enabling a mod is not
- * evidence for this deployment).
+ * evidence for this deployment). Missing/other-game active profile yields false;
+ * no state read failure ever reads as enabled.
  */
-function strictActiveProfileModEnabled(
+type ActiveProfileLike = {
+  gameId?: string;
+  modState?: Record<string, { enabled?: boolean }>;
+};
+
+export function getActiveMs2Profile(
   api: types.IExtensionApi | undefined,
-  modId: string,
-): boolean {
-  if (!api) return false;
+): ActiveProfileLike | undefined {
+  if (!api) return undefined;
 
   let state: unknown;
   try {
     state = api.getState();
   } catch {
-    return false;
+    return undefined;
   }
 
   const s = state as {
     settings?: { profiles?: { activeProfileId?: unknown } };
-    persistent?: {
-      profiles?: Record<
-        string,
-        { gameId?: unknown; modState?: Record<string, { enabled?: boolean }> }
-      >;
-    };
+    persistent?: { profiles?: Record<string, ActiveProfileLike> };
   };
 
-  const activeProfileId = s?.settings?.profiles?.activeProfileId;
-  if (typeof activeProfileId !== 'string' || activeProfileId.length === 0) {
-    return false;
-  }
+  const id = s?.settings?.profiles?.activeProfileId;
+  if (typeof id !== 'string' || id.length === 0) return undefined;
 
-  const profile = s?.persistent?.profiles?.[activeProfileId];
-  if (!profile || profile.gameId !== GAME_ID) {
-    return false;
-  }
+  const profile = s?.persistent?.profiles?.[id];
+  return profile?.gameId === GAME_ID ? profile : undefined;
+}
 
-  return profile.modState?.[modId]?.enabled === true;
+function strictActiveProfileModEnabled(
+  api: types.IExtensionApi | undefined,
+  modId: string,
+): boolean {
+  return getActiveMs2Profile(api)?.modState?.[modId]?.enabled === true;
 }
 
 type ResolvedSourceMod = {
@@ -803,55 +814,134 @@ function indexMs2ModsBySource(api: types.IExtensionApi): Map<string, ResolvedSou
   return index;
 }
 
+/** Installed-mod metadata the Package-04 reactive engine needs (labels, identity). */
+export type InstalledModLike = {
+  id?: string;
+  type?: string;
+  state?: string;
+  installationPath?: string;
+  attributes?: {
+    modId?: number;
+    name?: string;
+    modName?: string;
+    source?: string;
+    [key: string]: unknown;
+  };
+};
+
 /**
- * UE4SS mod directory names that this deployment actually delivered, derived
- * only from provenance-resolved manifest files: each file's source must resolve
- * unambiguously to an installed MS2 mod strictly enabled in the ACTIVE MS2
- * profile (no fallback to other profiles) whose type is eligible for independent
- * UE4SS mods, and the path must match that type's canonical UE4SS mod script
- * layout. Manual directories on disk are NOT deployment evidence and must never
- * be inferred here; framework internals (shared libs, bundled loader mods) never
- * qualify.
+ * Persistent-id lookup for installed-mod metadata. Deliberately separate from
+ * `indexMs2ModsBySource`: provenance resolution stays installationPath-keyed,
+ * while the decision adapter needs the dictionary record (type/attributes).
  */
-function deployedUe4ssModDirs(
+export function getInstalledMod(
+  api: types.IExtensionApi | undefined,
+  modId: string,
+): InstalledModLike | undefined {
+  if (!api) return undefined;
+
+  try {
+    const state = api.getState() as {
+      persistent?: {
+        mods?: Record<string, Record<string, InstalledModLike>>;
+      };
+    };
+    return state.persistent?.mods?.[GAME_ID]?.[modId];
+  } catch {
+    return undefined;
+  }
+}
+
+/** One resolved mod from the shared provenance pass, with its normalized relPaths. */
+export type ResolvedActiveDeploymentMod = {
+  modId: string;
+  type?: string;
+  files: string[];
+};
+
+/**
+ * Single deployment-provenance resolution shared by BOTH consumers:
+ * Package-03 mods.txt reconciliation (deployedUe4ssModDirs) and the Package-04
+ * reactive dependency decision adapter. Contract (Package-03, accepted):
+ * - IDeployedFile.source == installed mod installationPath (NOT the persistent key);
+ * - zero or two+ claimants for a source are unresolvable/ambiguous → skipped;
+ * - 'uninstalled' records and mods not strictly enabled in the ACTIVE MS2 profile
+ *   never contribute (no fallback to other profiles, no name/path guessing).
+ * Type eligibility is deliberately NOT applied here — it is policy of each
+ * consumer (mods.txt adoption keeps its UE4SS consumer/carrier filter; the
+ * decision adapter classifies by modType/role sets instead).
+ */
+export function resolveActiveDeploymentMods(
   api: types.IExtensionApi | undefined,
   deployment: unknown,
-): string[] {
-  const files = (deployment as DeploymentManifestLike | undefined)?.files;
+): Map<string, ResolvedActiveDeploymentMod> {
+  const result = new Map<string, ResolvedActiveDeploymentMod>();
 
-  if (!Array.isArray(files) || files.length === 0 || !api) {
-    return [];
-  }
+  if (!api) return result;
+
+  const files = (deployment as DeploymentManifestLike | undefined)?.files;
+  if (!Array.isArray(files)) return result;
 
   const bySource = indexMs2ModsBySource(api);
-  if (bySource.size === 0) return [];
-
-  const dirs = new Map<string, string>();
+  if (bySource.size === 0) return result;
 
   for (const file of files) {
     if (!file || typeof file !== 'object') continue;
     if (typeof file.source !== 'string' || file.source.length === 0) continue;
+    if (typeof file.relPath !== 'string' || file.relPath.length === 0) continue;
 
     const candidates = bySource.get(file.source);
     if (!candidates || candidates.length !== 1) continue; // unresolvable/ambiguous → skip
-    const mod = candidates[0];
-    if (mod.state === 'uninstalled') continue;
+    const sourceMod = candidates[0];
+    if (sourceMod.state === 'uninstalled') continue;
+    if (!strictActiveProfileModEnabled(api, sourceMod.modId)) continue;
 
+    const entry = result.get(sourceMod.modId) ?? {
+      modId: sourceMod.modId,
+      type: sourceMod.type,
+      files: [],
+    };
+    entry.files.push(norm(file.relPath));
+    result.set(sourceMod.modId, entry);
+  }
+
+  return result;
+}
+
+/**
+ * UE4SS mod directory names that this deployment actually delivered, derived
+ * only from provenance-resolved manifest files via the shared resolution pass:
+ * each file's source must resolve unambiguously to an installed MS2 mod strictly
+ * enabled in the ACTIVE MS2 profile (no fallback to other profiles) whose type is
+ * eligible for independent UE4SS mods, and the path must match that type's
+ * canonical UE4SS mod script layout. Manual directories on disk are NOT deployment
+ * evidence and must never be inferred here; framework internals (shared libs,
+ * bundled loader mods) never qualify.
+ */
+export function deployedUe4ssModDirs(
+  api: types.IExtensionApi | undefined,
+  deployment: unknown,
+): string[] {
+  const resolved = resolveActiveDeploymentMods(api, deployment);
+
+  const dirs = new Map<string, string>();
+
+  for (const entry of resolved.values()) {
+    // Eligibility policy stays with mods.txt adoption: framework/non-consumer
+    // internals are never adopted even though the shared resolver sees them.
     const eligibleType =
-      UE4SS_CONSUMER_SOURCE_TYPES.has(mod.type ?? '')
-      || UE4SS_CARRIER_SOURCE_TYPES.has(mod.type ?? '');
-    if (!eligibleType) continue; // framework/non-consumer internals are never adopted
+      UE4SS_CONSUMER_SOURCE_TYPES.has(entry.type ?? '')
+      || UE4SS_CARRIER_SOURCE_TYPES.has(entry.type ?? '');
+    if (!eligibleType) continue;
 
-    // Strict active-profile check: the legacy helper may fall back to another
-    // MS2 profile; ownership reconciliation must only trust the ACTIVE one.
-    if (!strictActiveProfileModEnabled(api, mod.modId)) continue;
+    for (const relPath of entry.files) {
+      const name = strongUe4ssModDir(entry.type, relPath);
+      if (!name) continue; // no canonical UE4SS mod script evidence for this type → skip
 
-    const name = strongUe4ssModDir(mod.type, file.relPath);
-    if (!name) continue; // no canonical UE4SS mod script evidence for this type → skip
-
-    const key = name.toLowerCase();
-    if (!dirs.has(key)) {
-      dirs.set(key, name);
+      const key = name.toLowerCase();
+      if (!dirs.has(key)) {
+        dirs.set(key, name);
+      }
     }
   }
 
@@ -1529,6 +1619,131 @@ const UE4SS_DEPENDENT_MOD_TYPES = new Set([
 ]);
 
 const RESHADE_PRESET_MOD_TYPES = new Set(['mortalshell2-reshade-preset']);
+
+/**
+ * Package-04 dependency role sets (verified against live game.yaml modTypes).
+ * `mortalshell2-reshade-preset` is 'none' for the UE4SS/DML engine only — its
+ * separate Package-02 ReShade notification behavior is untouched. Carrier roles
+ * keep root/content distinct so dependencies.ts can enforce each canonical path
+ * shape without hard-coding ids here.
+ */
+const NO_FRAMEWORK_DEPENDENCY_TYPES = new Set([
+  'mortalshell2-pak',
+  'mortalshell2-binaries',
+  'mortalshell2-reshade-preset',
+  'mortalshell2-ue4ss-framework',
+  'mortalshell2-dml-framework',
+  'mortalshell2-dml-tree',
+]);
+
+const ROOT_CARRIER_TYPES = new Set(['mortalshell2-root']);
+const CONTENT_CARRIER_TYPES = new Set(['mortalshell2-contentfolder']);
+
+export const MOD_TYPE_GROUPS = {
+  logic: LOGIC_MOD_TYPES,
+  ue4ss: UE4SS_DEPENDENT_MOD_TYPES,
+  noDependency: NO_FRAMEWORK_DEPENDENCY_TYPES,
+  rootCarrier: ROOT_CARRIER_TYPES,
+  contentCarrier: CONTENT_CARRIER_TYPES,
+} as const;
+
+/** One reactive dependency outcome for a single installed mod. */
+export type DependencyAdapterResult = {
+  dependency: DependencyKind;
+  decision: DependencyDecision;
+  label: string;
+  identity: string;
+  nexusModId?: number;
+  ue4ssOwnership?: Ue4ssOwnership;
+};
+
+/**
+ * Single Vortex-state → pure-engine adapter (Package-04). Reactive UX, the
+ * IModHealthCheck wrapper, and any future consumer all go through here so there
+ * is exactly one framework-state decision path: live Package-03 assessments
+ * (disk evidence + package provenance) feed the pure decideDependency engine.
+ * Explicit LogicMod/UE4SS modTypes classify with `files = []`; carriers need
+ * strong staged-file evidence and never scan disk to compensate for missing
+ * manifest provenance.
+ */
+export async function dependencyDecisionForInstalledMod(
+  api: types.IExtensionApi,
+  modId: string,
+  files: readonly string[] = [],
+): Promise<DependencyAdapterResult> {
+  const installed = getInstalledMod(api, modId);
+  const normalizedFiles = files.map((file) => String(file).replace(/\\/g, '/'));
+
+  const dependency = classifyDependency(
+    installed?.type,
+    normalizedFiles,
+    MOD_TYPE_GROUPS,
+  );
+
+  const nexusModId =
+    typeof installed?.attributes?.modId === 'number'
+      ? installed.attributes.modId
+      : undefined;
+
+  const label = notificationSafeLabel({
+    vortexModId: modId,
+    name:
+      typeof installed?.attributes?.name === 'string'
+        ? installed.attributes.name
+        : undefined,
+    modName:
+      typeof installed?.attributes?.modName === 'string'
+        ? installed.attributes.modName
+        : undefined,
+  });
+
+  const identity = stableModIdentity({
+    vortexModId: modId,
+    nexusModId,
+  });
+
+  if (dependency === 'none') {
+    return { dependency, decision: { kind: 'not-applicable' }, label, identity, nexusModId };
+  }
+
+  const discovery = getDiscovery(api);
+  if (!discovery?.path) {
+    return { dependency, decision: { kind: 'not-applicable' }, label, identity, nexusModId };
+  }
+
+  const [ue4ss, dml, bp] = await Promise.all([
+    assessUe4ssRuntime(discovery.path, api),
+    assessDmlRuntime(discovery.path, api),
+    assessBpModLoader(discovery.path),
+  ]);
+
+  return {
+    dependency,
+    decision: decideDependency({
+      dependency,
+      selfContained: detectSelfContainedEvidence(normalizedFiles),
+      ue4ss,
+      dml,
+      bp,
+    }),
+    label,
+    identity,
+    nexusModId,
+    ue4ssOwnership: ue4ss.ownership,
+  };
+}
+
+/** IModHealthCheck.checkMod context → the same installed-mod adapter (no second decision path). */
+export async function dependencyDecisionForMod(
+  api: types.IExtensionApi,
+  mod: ModCheckCtx,
+): Promise<DependencyAdapterResult> {
+  return dependencyDecisionForInstalledMod(
+    api,
+    mod.modId ?? '',
+    (mod.files ?? []).map((file) => String(file).replace(/\\/g, '/')),
+  );
+}
 
 function profileModEnabled(
   api: types.IExtensionApi,
