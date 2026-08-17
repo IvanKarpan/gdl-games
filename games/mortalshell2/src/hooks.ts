@@ -268,23 +268,75 @@ export async function hasLogicModLoader(discoveryPath: string): Promise<{
   return { ok: (bp.present && bp.enabled) || dml.health === 'healthy', bp, dml };
 }
 
-function vortexManagesModType(
+export interface FrameworkPackageState {
+  packagePresent: boolean;
+  packageEnabled: boolean;
+}
+
+/**
+ * Vortex package provenance for a framework mod type. Presence (an installed
+ * record) and active-profile enablement are separate facts: only the profile
+ * selected in settings.profiles.activeProfileId — when it belongs to this game —
+ * can supply `packageEnabled`. A present-but-disabled package, or one enabled in
+ * another MS2 profile, never claims an on-disk runtime.
+ */
+export function assessFrameworkPackageState(
   api: types.IExtensionApi | undefined,
-  modType: string,
-): boolean {
-  if (!api) return false;
+  modTypes: readonly string[],
+): FrameworkPackageState {
+  if (!api) {
+    return { packagePresent: false, packageEnabled: false };
+  }
+
   try {
     const state = api.getState() as {
+      settings?: {
+        profiles?: { activeProfileId?: string };
+      };
       persistent?: {
-        mods?: Record<string, Record<string, { type?: string; state?: string }>>;
+        mods?: Record<
+          string,
+          Record<string, { type?: string; state?: string }>
+        >;
+        profiles?: Record<
+          string,
+          {
+            gameId?: string;
+            modState?: Record<string, { enabled?: boolean }>;
+          }
+        >;
       };
     };
-    const modsForGame = state?.persistent?.mods?.[GAME_ID] ?? {};
-    return Object.values(modsForGame).some(
-      (m) => m?.type === modType && m?.state !== 'uninstalled',
+
+    const acceptedTypes = new Set(modTypes);
+    const modsForGame = state.persistent?.mods?.[GAME_ID] ?? {};
+    const matching = Object.entries(modsForGame).filter(
+      ([, mod]) =>
+        mod?.state !== 'uninstalled'
+        && acceptedTypes.has(mod?.type ?? ''),
     );
+
+    const packagePresent = matching.length > 0;
+    if (!packagePresent) {
+      return { packagePresent: false, packageEnabled: false };
+    }
+
+    const activeProfileId = state.settings?.profiles?.activeProfileId;
+    const activeProfile = activeProfileId
+      ? state.persistent?.profiles?.[activeProfileId]
+      : undefined;
+
+    if (activeProfile?.gameId !== GAME_ID) {
+      return { packagePresent: true, packageEnabled: false };
+    }
+
+    const packageEnabled = matching.some(
+      ([modId]) => activeProfile.modState?.[modId]?.enabled === true,
+    );
+
+    return { packagePresent: true, packageEnabled };
   } catch {
-    return false;
+    return { packagePresent: false, packageEnabled: false };
   }
 }
 
@@ -386,7 +438,11 @@ export async function assessUe4ssRuntime(
     health = 'partial';
   }
 
-  const vortexManaged = vortexManagesModType(api, VORTEX_UE4SS_MODTYPE);
+  const packageState = assessFrameworkPackageState(
+    api,
+    [VORTEX_UE4SS_MODTYPE],
+  );
+  const vortexManaged = packageState.packageEnabled;
 
   let ownership: Ue4ssOwnership = 'absent';
   if (health === 'absent') {
@@ -489,7 +545,11 @@ export async function assessDmlRuntime(
     health = 'partial';
   }
 
-  const vortexManaged = VORTEX_DML_MODTYPES.some((t) => vortexManagesModType(api, t));
+  const packageState = assessFrameworkPackageState(
+    api,
+    VORTEX_DML_MODTYPES,
+  );
+  const vortexManaged = packageState.packageEnabled;
 
   let ownership: DmlOwnership = 'absent';
   if (health === 'absent') {
