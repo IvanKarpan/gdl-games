@@ -1723,6 +1723,7 @@ export async function processReactiveDependencies(ctx: {
 
   const deployed = resolveActiveDeploymentMods(api, ctx.deployment);
   const desired = new Map<string, DependencyNotificationInput>();
+  const activationReminders: DependencyAdapterResult[] = [];
 
   for (const [modId, mod] of enabledInstalledMods(api)) {
     const files = deployed.get(modId)?.files ?? [];
@@ -1733,7 +1734,7 @@ export async function processReactiveDependencies(ctx: {
     if (result.decision.kind === 'not-applicable') continue;
     if (result.decision.kind === 'satisfied') {
       if (deployed.has(modId)) {
-        maybeNotifyDmlActivation(api, result);
+        activationReminders.push(result);
       }
       continue;
     }
@@ -1761,6 +1762,10 @@ export async function processReactiveDependencies(ctx: {
 
   for (const input of desired.values()) {
     sendDependencyNotification(api, input);
+  }
+
+  for (const result of activationReminders) {
+    maybeNotifyDmlActivation(api, result);
   }
 }
 
