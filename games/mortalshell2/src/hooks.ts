@@ -34,7 +34,6 @@ const BPMOD_LOADER_DIR = 'BPModLoaderMod';
 
 export type Ue4ssOwnership =
   | 'absent'
-  | 'partial'
   | 'vortex-managed'
   | 'externally-managed'
   | 'ultra-managed';
@@ -57,11 +56,13 @@ interface VortexDiscovery {
   store?: string;
 }
 
-export interface Ue4ssRuntimeAssessment {
+export interface Ue4ssRuntimeAssessment extends FrameworkPackageState {
   ownership: Ue4ssOwnership;
   health: RuntimeHealth;
+  managedByVortex: boolean;
   hasProxy: boolean;
   hasCoreDll: boolean;
+  /** Observational only — an empty Mods directory must not contribute to health. */
   hasModsDir: boolean;
   hasSettings: boolean;
   ultraPlusDetected: boolean;
@@ -412,8 +413,11 @@ export function ue4ssGuidance(a: Ue4ssRuntimeAssessment): string {
 }
 
 /**
- * Assess on-disk UE4SS runtime. Ownership uses Vortex deployment state when
- * available; otherwise external/ultra. Never infers ownership from hashes.
+ * Assess the on-disk UE4SS runtime from filesystem evidence only. Health is
+ * derived strictly from meaningful files (proxy dll + core dll); scaffold
+ * directories like an empty Mods/ never contribute. Vortex package presence and
+ * active-profile enablement are separate facts and only confer ownership when
+ * disk evidence exists; positive Ultra+ evidence always wins ownership.
  */
 export async function assessUe4ssRuntime(
   discoveryPath: string,
@@ -432,9 +436,9 @@ export async function assessUe4ssRuntime(
   const ultraPlusDetected = await detectUltraPlus(discoveryPath);
 
   let health: RuntimeHealth = 'absent';
-  if (hasProxy && hasCoreDll && hasModsDir) {
+  if (hasProxy && hasCoreDll) {
     health = 'healthy';
-  } else if (hasProxy || hasCoreDll || hasModsDir || hasSettings) {
+  } else if (hasProxy || hasCoreDll || hasSettings) {
     health = 'partial';
   }
 
@@ -442,17 +446,19 @@ export async function assessUe4ssRuntime(
     api,
     [VORTEX_UE4SS_MODTYPE],
   );
-  const vortexManaged = packageState.packageEnabled;
+
+  const managedByVortex =
+    health !== 'absent'
+    && packageState.packageEnabled
+    && !ultraPlusDetected;
 
   let ownership: Ue4ssOwnership = 'absent';
   if (health === 'absent') {
     ownership = 'absent';
-  } else if (vortexManaged) {
-    ownership = 'vortex-managed';
   } else if (ultraPlusDetected) {
     ownership = 'ultra-managed';
-  } else if (health === 'partial') {
-    ownership = 'partial';
+  } else if (managedByVortex) {
+    ownership = 'vortex-managed';
   } else {
     ownership = 'externally-managed';
   }
@@ -460,6 +466,8 @@ export async function assessUe4ssRuntime(
   const base: Ue4ssRuntimeAssessment = {
     ownership,
     health,
+    managedByVortex,
+    ...packageState,
     hasProxy,
     hasCoreDll,
     hasModsDir,
