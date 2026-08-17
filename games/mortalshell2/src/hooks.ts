@@ -1214,7 +1214,7 @@ export async function notifyMissingFrameworks(
               {
                 title: 'Download UE4SS',
                 action: (dismiss: () => void) => {
-                  void fixLogicModLoaderStack(api).finally(() => dismiss());
+                  void installUe4ssFromNexus(api).finally(() => dismiss());
                 },
               },
               { title: 'Open Nexus', action: openUe4ssNexus },
@@ -1236,7 +1236,7 @@ export async function notifyMissingFrameworks(
           {
             title: 'Download UE4SS',
             action: (dismiss: () => void) => {
-              void fixLogicModLoaderStack(api).finally(() => dismiss());
+              void installUe4ssFromNexus(api).finally(() => dismiss());
             },
           },
           { title: 'Open Nexus', action: openUe4ssNexus },
@@ -1532,77 +1532,6 @@ export async function installDmlFromNexus(api: types.IExtensionApi): Promise<voi
       'DML download started. Install/enable it so files land in Content/Paks/dml/ (not ~mods), then redeploy.',
     notifyId: 'mortalshell2-dml-fix',
   });
-}
-
-/** LogicMods Fix — always the UE4SS pack (mod 5); it ships BPModLoaderMod. */
-export async function installBpModLoaderFromNexus(
-  api: types.IExtensionApi,
-): Promise<void> {
-  await installUe4ssFromNexus(api);
-}
-
-/**
- * Fix for LogicMods: download Nexus mod 5 (UE4SS + BPModLoaderMod).
- * Never downloads a Vortex UE4SS package over Ultra+/external ownership — open the page instead.
- */
-export async function fixLogicModLoaderStack(
-  api: types.IExtensionApi,
-): Promise<void> {
-  const discovery = getDiscovery(api);
-  if (!discovery?.path) {
-    notify(api, 'warning', 'Game path not discovered — cannot install framework mods yet.');
-    return;
-  }
-
-  const { ok, bp } = await hasLogicModLoader(discovery.path);
-  if (ok) {
-    notify(api, 'success', 'A LogicMod loader is already present (BPModLoaderMod and/or DML).', {
-      id: 'mortalshell2-logicmod-fix',
-    });
-    return;
-  }
-
-  const ue4ss = await assessUe4ssRuntime(discovery.path, api);
-  const ultraOrExternal =
-    ue4ss.ultraPlusDetected ||
-    ue4ss.ownership === 'ultra-managed' ||
-    ue4ss.ownership === 'externally-managed';
-
-  if (ue4ss.health !== 'healthy') {
-    if (ultraOrExternal) {
-      notify(api, 'warning', logicModsNeedUe4ssGuidance(ue4ss), {
-        id: 'mortalshell2-logicmod-fix',
-      });
-      try {
-        await util.opn(`${UE4SS_NEXUS_PAGE}?tab=files`);
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    await installUe4ssFromNexus(api);
-    return;
-  }
-
-  // UE4SS healthy but BPModLoaderMod missing/disabled — same Nexus pack.
-  notify(
-    api,
-    'warning',
-    bpModLoaderGuidance(
-      bp,
-      ue4ss.ultraPlusDetected || ue4ss.ownership === 'ultra-managed',
-    ),
-    { id: 'mortalshell2-logicmod-fix' },
-  );
-  if (ultraOrExternal) {
-    try {
-      await util.opn(`${UE4SS_NEXUS_PAGE}?tab=files`);
-    } catch {
-      // ignore
-    }
-    return;
-  }
-  await installUe4ssFromNexus(api);
 }
 
 const LOGIC_MOD_TYPES = new Set([
