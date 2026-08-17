@@ -16,8 +16,8 @@
 #   dwmapi.dll + dxgi.dll together is valid (not a conflict).
 # Nexus mod 5 = verified UE4SS runtime (dwmapi.dll + ue4ss/ including BPModLoaderMod).
 # Archives with dwmapi/UE4SS.dll install as framework → Binaries/Win64 (not ue4ss/Mods).
-# LogicMods need healthy UE4SS + enabled BPModLoaderMod (shipped in mod 5). Fix → mods/5.
-# DmgModLoader (mods/4 → Content/Paks/dml) remains routed but is not the LogicMods Fix path.
+# DmgModLoader (mods/4 → Content/Paks/dml) is preferred for fresh LogicMod resolution.
+# Healthy UE4SS + enabled BPModLoaderMod remains valid LogicMod satisfaction/coexistence.
 # The framework dependency diagnostic is one per-mod Vortex 2.4 health check —
 # modFrameworkDependencyCheck (checkMod only, no fix; IModHealthCheck cannot carry
 # a Fix action in Vortex 2.4). Missing `triggers` on a registered check crashes

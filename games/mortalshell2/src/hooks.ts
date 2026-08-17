@@ -28,7 +28,8 @@ export const GAME_ID = 'mortalshell2';
 /**
  * Nexus mod ids on mortalshell2 (verified against live packages):
  *   5 = UE4SS runtime (dwmapi + ue4ss/, includes BPModLoaderMod)
- *   4 = DmgModLoader (DML) — IoStore paks → Content/Paks/dml/ (NOT ~mods); not the Fix path
+ *   4 = DmgModLoader (DML) — preferred for fresh LogicMod resolution;
+ *       enabled BPModLoader remains valid satisfaction/coexistence
  * Microsoft DirectML lives at Binaries/Win64/DML — ignore for loader detection.
  */
 export const DML_NEXUS_MOD_ID = 4;
@@ -1688,7 +1689,9 @@ export async function processReactiveDependencies(ctx: {
     const result = await dependencyDecisionForInstalledMod(api, modId, files);
     if (result.decision.kind === 'not-applicable') continue;
     if (result.decision.kind === 'satisfied') {
-      maybeNotifyDmlActivation(api, result);
+      if (deployed.has(modId)) {
+        maybeNotifyDmlActivation(api, result);
+      }
       continue;
     }
 
@@ -1736,7 +1739,7 @@ export const modFrameworkDependencyCheck: types.IModHealthCheck = {
       return {
         checkId: 'mortalshell2-mod-framework-dependency',
         status: 'passed',
-        severity: 'warning',
+        severity: 'info',
         message:
           result.decision.kind === 'not-applicable'
             ? 'No optional framework dependency.'

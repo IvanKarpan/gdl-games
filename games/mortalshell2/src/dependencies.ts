@@ -107,17 +107,17 @@ export function classifyDependency(
     return 'none';
   }
 
-  // Unknown/untyped staged content may use only strong self-describing layouts.
-  if (modType === undefined) {
-    if (normalized.some((file) =>
-      /(^|\/)logicmods\/[^/]+\//.test(file),
-    )) return 'logicmod';
+  // Blank, unrecognized, and untyped staged content may use only strong
+  // self-describing layouts. All explicit semantic and carrier roles returned
+  // above, so their policy remains authoritative over this fallback.
+  if (normalized.some((file) =>
+    /(^|\/)logicmods\/[^/]+\//.test(file),
+  )) return 'logicmod';
 
-    if (normalized.some((file) =>
-      /(^|\/)(?:ue4ss\/)?mods\/[^/]+\/scripts\/[^/]+\.lua$/.test(file)
-      || /^[^/]+\/scripts\/[^/]+\.lua$/.test(file),
-    )) return 'ue4ss-mod';
-  }
+  if (normalized.some((file) =>
+    /(^|\/)(?:ue4ss\/)?mods\/[^/]+\/scripts\/[^/]+\.lua$/.test(file)
+    || /^[^/]+\/scripts\/[^/]+\.lua$/.test(file),
+  )) return 'ue4ss-mod';
 
   return 'none';
 }
