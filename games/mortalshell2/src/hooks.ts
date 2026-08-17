@@ -33,9 +33,6 @@ export const GAME_ID = 'mortalshell2';
  */
 export const DML_NEXUS_MOD_ID = 4;
 export const UE4SS_NEXUS_MOD_ID = 5;
-export const UE4SS_NEXUS_PAGE =
-  `https://www.nexusmods.com/mortalshell2/mods/${UE4SS_NEXUS_MOD_ID}`;
-
 /** Official ReShade site — preset mods need the runtime, which presets do not ship. */
 export const RESHADE_SITE = 'https://reshade.me/';
 
