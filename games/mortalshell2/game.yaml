@@ -1,17 +1,18 @@
 # Mortal Shell II — Vortex GDL extension
 #
-# Engine: Unreal Engine with IoStore (.pak / .ucas / .utoc). Observed on Open Beta.
+# Engine: Unreal Engine with IoStore (.pak / .ucas / .utoc). Observed on retail
+# Steam build 24772279 on 2026-08-17.
 # Shipping exe: MortalShell2/Binaries/Win64/MortalShell2-Win64-Shipping.exe
-# Steam bootstrap at install root: MortalShell2.exe
-# Open Beta Steam AppID: 4711740 (current pre-release test target).
-# Retail discovery/layout is intentionally deferred until the retail build can be verified.
+# Steam bootstrap at install root: MortalShell2.exe; retail retains the internal
+# MortalShell2 game folder.
+# Retail Steam AppID: 2584270. Steam supplies the install path.
 #
 # Framework ownership (optional — never pre-installed by managing the game):
 #   UE4SS: absent | partial | vortex-managed | externally-managed | ultra-managed
 #   Healthy UE4SS: dwmapi.dll + ue4ss/UE4SS.dll + ue4ss/Mods/
 #   Ultra+: UltraPlusExtensions/, ~UltraPlus_*, %LOCALAPPDATA%/UltraPlusManager
 #   DmgModLoader (DML): Content/Paks/dml/ with .pak payload — NOT Binaries/Win64/DML
-#     (that path is Microsoft DirectML on Open Beta).
+#     (that path is Microsoft DirectML on retail).
 #   RHI / RenoDX: dxgi.dll, reshade.ini, reshade-shaders/, *.addon64 — separate.
 #   dwmapi.dll + dxgi.dll together is valid (not a conflict).
 # Nexus mod 5 = verified UE4SS runtime (dwmapi.dll + ue4ss/ including BPModLoaderMod).
@@ -27,7 +28,6 @@
 #   - Standard asset paks → Content/Paks/~mods (matches Ultra+ layout).
 #   - LogicMods → Content/Paks/LogicMods/<ModName>/ — need healthy DML or enabled BPModLoaderMod
 #     under ue4ss/Mods (included in Nexus mortalshell2/mods/5). Bare UE4SS/Ultra+ without that Lua mod ≠ enough.
-#   - Full-release install folder name is unverified — do not assume beta path identity.
 # Contribution backlog / publish checklist: PLAN.md (working notes; not in the zip).
 # Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
 
@@ -61,8 +61,8 @@ game:
       - mods.txt
 
 stores:
-  # Open Beta — current pre-release target. Replace only after retail validation.
-  steam: "4711740"
+  # Retail Steam discovery. Steam supplies the install path; do not hardcode its leaf.
+  steam: "2584270"
 
 context:
   gamePath: ${installPath}/MortalShell2
@@ -438,11 +438,8 @@ toolbarActions:
     target: { openFile: "${pakModsPath}" }
 
 tests:
-  # Beta Steam (4711740) corpus was used for routing discovery on 2026-08-16; the
-  # durable archive-shape regressions live in the deterministic cases below.
-  # Retail corpus must be re-reconciled after release — this is not final retail
-  # readiness, and `off` stays committed until that reconciliation happens.
-  corpus: off
+  # Current Nexus catalogue is reconciled during Package 05; local cache remains ignored.
+  corpus: nexus
   cases:
     # 2. UE4SS mod Scripts/
     - name: "ue4ss-mod: ModName/Scripts/main.lua"
