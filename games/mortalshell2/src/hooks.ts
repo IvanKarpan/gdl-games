@@ -1306,26 +1306,22 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
   });
 }
 
-/**
- * did-deploy: merge mods.txt, then toast if LogicMods/UE4SS mods need frameworks.
- * Health-check Fix actions alone often never surface as notifications.
- */
+/** did-deploy: reconcile mods.txt, then run independent reactive/ReShade UX. */
 export async function afterDeploy(ctx: {
   profileId: string;
   deployment: unknown;
   api: unknown;
 }): Promise<void> {
   await regenerateModsTxt(ctx);
-  const api = ctx.api as types.IExtensionApi;
   try {
-    await notifyMissingFrameworks(api);
+    await processReactiveDependencies(ctx);
   } catch (err) {
-    log('warn', 'mortalshell2: framework notify failed', {
+    log('warn', 'mortalshell2: reactive dependency processing failed', {
       err: err instanceof Error ? err.message : String(err),
     });
   }
   try {
-    await notifyMissingReShade(api);
+    await notifyMissingReShade(ctx.api as types.IExtensionApi);
   } catch (err) {
     log('warn', 'mortalshell2: reshade notify failed', {
       err: err instanceof Error ? err.message : String(err),
@@ -1892,8 +1888,9 @@ function dependencyFailureMessage(
 
 /**
  * Emit repeatable warnings for enabled installed mods whose framework decision
- * is unresolved. Deployment provenance is read only from the shared Package-03
- * resolver; lifecycle composition is intentionally deferred to Task 8.
+ * is unresolved, plus one persisted activation reminder for LogicMods that the
+ * same decision adapter has determined are satisfied through DML. Deployment
+ * provenance is read only from the shared Package-03 resolver.
  */
 export async function processReactiveDependencies(ctx: {
   profileId: string;
@@ -1911,10 +1908,11 @@ export async function processReactiveDependencies(ctx: {
     if (dependency === 'none') continue;
 
     const result = await dependencyDecisionForInstalledMod(api, modId, files);
-    if (
-      result.decision.kind === 'not-applicable'
-      || result.decision.kind === 'satisfied'
-    ) continue;
+    if (result.decision.kind === 'not-applicable') continue;
+    if (result.decision.kind === 'satisfied') {
+      maybeNotifyDmlActivation(api, result);
+      continue;
+    }
 
     sendDependencyNotification(api, {
       label: result.label,
