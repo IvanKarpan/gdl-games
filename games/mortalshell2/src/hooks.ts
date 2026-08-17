@@ -12,7 +12,7 @@
  */
 import { access, readFile, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { fs, log, selectors, types, util } from 'vortex-api';
+import { actions, fs, log, selectors, types, util } from 'vortex-api';
 import {
   classifyDependency,
   decideDependency,
@@ -1587,6 +1587,105 @@ export type DependencyAdapterResult = {
   nexusModId?: number;
   ue4ssOwnership?: Ue4ssOwnership;
 };
+
+type NotificationActions = {
+  suppressNotification?: (
+    id: string,
+    suppress: boolean,
+  ) => unknown;
+};
+
+function getSuppressNotificationAction() {
+  return (actions as unknown as NotificationActions).suppressNotification;
+}
+
+function notificationSuppressed(
+  api: types.IExtensionApi,
+  id: string,
+): boolean {
+  const state = api.getState() as {
+    settings?: {
+      notifications?: {
+        suppress?: Record<string, boolean>;
+      };
+    };
+  };
+
+  return state.settings?.notifications?.suppress?.[id] === true;
+}
+
+function dmlActivationNotificationId(identity: string): string {
+  return `mortalshell2:dml-activation:${identity}`;
+}
+
+function dmlActivationMessage(input: {
+  label: string;
+  nexusModId?: number;
+}): string {
+  return (
+    `${input.label} is deployed and DML is installed. `
+    + 'DML may require an additional activation step for this LogicMod. '
+    + "Check the mod author's instructions or DML documentation."
+  );
+}
+
+function persistReminderSuppression(
+  api: types.IExtensionApi,
+  id: string,
+): boolean {
+  const makeAction = getSuppressNotificationAction();
+  if (typeof makeAction !== 'function') {
+    log(
+      'warn',
+      'mortalshell2: notification suppression action unavailable; DML activation reminder will not be persisted',
+    );
+    return false;
+  }
+
+  api.store.dispatch(makeAction(id, true) as never);
+  return true;
+}
+
+function sendDmlActivationReminder(
+  api: types.IExtensionApi,
+  input: {
+    label: string;
+    identity: string;
+    nexusModId?: number;
+  },
+): void {
+  const id = dmlActivationNotificationId(input.identity);
+  if (notificationSuppressed(api, id)) return;
+
+  // Vortex checks notification suppression while displaying the notification.
+  // Send before persisting, so this deterministic id remains visible once.
+  api.sendNotification({
+    id,
+    type: 'info',
+    title: 'LogicMod activation',
+    message: dmlActivationMessage(input),
+    allowSuppress: false,
+  } as never);
+
+  persistReminderSuppression(api, id);
+}
+
+/**
+ * Emit one persisted DML activation reminder only for a LogicMod that the
+ * reviewed dependency adapter has already determined is satisfied through DML.
+ */
+export function maybeNotifyDmlActivation(
+  api: types.IExtensionApi,
+  result: DependencyAdapterResult,
+): void {
+  if (
+    result.dependency !== 'logicmod'
+    || result.decision.kind !== 'satisfied'
+    || result.decision.loader !== 'dml'
+  ) return;
+
+  sendDmlActivationReminder(api, result);
+}
 
 /**
  * Enabled installed mods from the one exact active MS2 profile. This is kept
