@@ -32,7 +32,7 @@
 # Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
 
 gdl: 1
-version: 0.1.3
+version: 0.1.4
 
 game:
   id: mortalshell2
@@ -382,8 +382,9 @@ installers:
         - { hasFile: "Binaries/**" }
         - { hasFile: "**/*.{pak,ucas,utoc}" }
         - { hasFile: "**/{dxgi.dll,dwmapi.dll,UE4SS.dll}" }
-        # Locked archive contains this one path only; any sibling stays unknown.
-        - { matches: "^(?!SaveGames/WorldState_0\\.sav$).*" }
+        # Accept only Vortex's harmless directory marker plus the exact save.
+        # Any root sibling or nested SaveGames payload stays unknown.
+        - { matches: "^(?!(?:SaveGames/?|SaveGames/WorldState_0\\.sav)$).*" }
     anchor: "SaveGames/WorldState_0.sav"
     take: archive-root
     placeAt: "${pakModsPath}"
@@ -984,10 +985,23 @@ tests:
         plan:
           - ${pakModsPath}/Engine.ini
 
-    # Nexus mod 23 file 32 — exact current archive is a single save under the
-    # SaveGames/ tree. Recognition preserves that tree at the default path only.
-    - name: "unsupported-save: Nexus mod 23 exact SaveGames tree"
+    # Nexus mod 23 file 32 — the real archive includes an explicit SaveGames
+    # directory entry. Preserve only its exact save beneath the default path.
+    - name: "unsupported-save: Nexus mod 23 real SaveGames directory entry"
       archive:
+        - SaveGames
+        - SaveGames/WorldState_0.sav
+      expect:
+        matched: unsupported-save
+        modType: mortalshell2-unsupported
+        plan:
+          - ${pakModsPath}/SaveGames/WorldState_0.sav
+
+    # Vortex/archive tooling may spell the harmless directory node with a
+    # trailing slash; it must have identical routing and no marker payload.
+    - name: "unsupported-save: slash-form SaveGames directory entry"
+      archive:
+        - SaveGames/
         - SaveGames/WorldState_0.sav
       expect:
         matched: unsupported-save
