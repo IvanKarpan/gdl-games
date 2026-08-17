@@ -1751,10 +1751,12 @@ export async function processReactiveDependencies(ctx: {
   }
 
   const notificationState = state as {
-    session?: { notifications?: { notifications?: Record<string, unknown> } };
+    session?: { notifications?: { notifications?: Array<{ id?: unknown }> } };
   };
-  const activeNotifications = notificationState.session?.notifications?.notifications ?? {};
-  for (const id of Object.keys(activeNotifications)) {
+  const activeNotifications = notificationState.session?.notifications?.notifications ?? [];
+  for (const notification of activeNotifications) {
+    const id = notification?.id;
+    if (typeof id !== 'string') continue;
     if (id.startsWith(DEPENDENCY_NOTIFICATION_PREFIX) && !desired.has(id)) {
       dismissNotification(api, id);
     }
