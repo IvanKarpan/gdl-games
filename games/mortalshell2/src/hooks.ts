@@ -1510,6 +1510,7 @@ export function dependencyNotificationId(
 }
 
 const DEPENDENCY_NOTIFICATION_PREFIX = 'mortalshell2:dependency:';
+const UNSUPPORTED_NOTIFICATION_PREFIX = 'mortalshell2:unsupported:';
 const UNSUPPORTED_MOD_TYPE = 'mortalshell2-unsupported';
 
 type UnsupportedNotificationInput = {
@@ -1861,7 +1862,10 @@ export async function processReactiveDependencies(ctx: {
   for (const notification of activeNotifications) {
     const id = notification?.id;
     if (typeof id !== 'string') continue;
-    if (id.startsWith(DEPENDENCY_NOTIFICATION_PREFIX) && !desired.has(id)) {
+    if (
+      (id.startsWith(DEPENDENCY_NOTIFICATION_PREFIX) && !desired.has(id))
+      || (id.startsWith(UNSUPPORTED_NOTIFICATION_PREFIX) && !unsupported.has(id))
+    ) {
       dismissNotification(api, id);
     }
   }

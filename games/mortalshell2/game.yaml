@@ -32,7 +32,7 @@
 # Kinship: games/subnautica2 (UE5 + UE4SS hooks) + games/solarpunk (ReShade).
 
 gdl: 1
-version: 0.1.4
+version: 0.1.5
 
 game:
   id: mortalshell2
