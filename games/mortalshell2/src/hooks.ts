@@ -1058,7 +1058,7 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
   if (!discovery?.path) return;
 
   // Vortex mod-type state can lag — also trust a preset .ini already in Win64.
-  if (!hasEnabledReShadePreset(api) && !(await hasReShadePresetOnDisk(discovery.path))) {
+  if (!hasEnabledReShadeDependentMod(api) && !(await hasReShadePresetOnDisk(discovery.path))) {
     dismissNotification(api, 'mortalshell2-need-reshade');
     return;
   }
@@ -1335,6 +1335,7 @@ const UE4SS_DEPENDENT_MOD_TYPES = new Set([
 ]);
 
 const RESHADE_PRESET_MOD_TYPES = new Set(['mortalshell2-reshade-preset']);
+const RESHADE_BINARY_ADDON_MOD_TYPES = new Set(['mortalshell2-binaries']);
 
 /**
  * Package-04 dependency role sets (verified against live game.yaml modTypes).
@@ -1984,6 +1985,13 @@ function hasEnabledModOfTypes(
 /** True when Vortex has an enabled ReShade preset mod for this game. */
 export function hasEnabledReShadePreset(api: types.IExtensionApi): boolean {
   return hasEnabledModOfTypes(api, RESHADE_PRESET_MOD_TYPES);
+}
+
+function hasEnabledReShadeDependentMod(api: types.IExtensionApi): boolean {
+  return (
+    hasEnabledReShadePreset(api)
+    || hasEnabledModOfTypes(api, RESHADE_BINARY_ADDON_MOD_TYPES)
+  );
 }
 
 function modFiles(mod: ModCheckCtx | undefined): string[] {
