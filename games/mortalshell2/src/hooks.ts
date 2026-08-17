@@ -687,26 +687,75 @@ const UE4SS_CARRIER_SOURCE_TYPES = new Set([
 ]);
 
 /**
- * Strong UE4SS mod evidence: a .lua file directly under <ModName>/Scripts/, at
- * any deployment root (ue4ss/Mods/<M>, Mods/<M>, or bare <M>). Paths like
- * ue4ss/Mods/shared/UEHelpers/UEHelpers.lua carry no such evidence, so "shared"
- * is never derived.
+ * Canonical UE4SS mod script layout per source mod type (Package-03 review fix,
+ * round 2). A manifest relPath is relative to the resolved target of that mod
+ * type (game.yaml getPath), so each type has exactly one canonical shape:
+ *   mortalshell2-ue4ss-mod     → ue4ss/Mods      : <M>/Scripts/*.lua
+ *   mortalshell2-ue4ss-tree    → ue4ss           : Mods/<M>/Scripts/*.lua
+ *   mortalshell2-root          → game install root: MortalShell2/Binaries/Win64/ue4ss/Mods/<M>/Scripts/*.lua
+ *   mortalshell2-contentfolder → Content folder  : Binaries/Win64/ue4ss/Mods/<M>/Scripts/*.lua
+ * Anything else (Tools/, Engine/, arbitrary subtrees, extra depth) is not UE4SS
+ * mod evidence and must never derive a mods.txt entry.
  */
-function strongUe4ssModDir(relPath: unknown): string | undefined {
-  if (typeof relPath !== 'string') return undefined;
+const UE4SS_MOD_SCRIPT_SHAPES: Record<string, RegExp> = {
+  'mortalshell2-ue4ss-mod': /^([^/]+)\/scripts\/[^/]+\.lua$/i,
+  'mortalshell2-ue4ss-tree': /^mods\/([^/]+)\/scripts\/[^/]+\.lua$/i,
+  'mortalshell2-root': /^MortalShell2\/Binaries\/Win64\/ue4ss\/Mods\/([^/]+)\/Scripts\/[^/]+\.lua$/i,
+  'mortalshell2-contentfolder': /^Binaries\/Win64\/ue4ss\/Mods\/([^/]+)\/Scripts\/[^/]+\.lua$/i,
+};
 
-  const segments = norm(relPath).split('/').filter((s) => s.length > 0);
+function strongUe4ssModDir(
+  modType: string | undefined,
+  relPath: unknown,
+): string | undefined {
+  const pattern = modType ? UE4SS_MOD_SCRIPT_SHAPES[modType] : undefined;
+  if (!pattern || typeof relPath !== 'string') return undefined;
 
-  for (let i = 0; i + 2 < segments.length; i++) {
-    if (
-      segments[i + 1].toLowerCase() === 'scripts'
-      && segments[i + 2].toLowerCase().endsWith('.lua')
-    ) {
-      return segments[i];
-    }
+  return norm(relPath).match(pattern)?.[1];
+}
+
+/**
+ * Strict active-profile enablement for Package-03 provenance: resolve exactly
+ * persistent.profiles[activeProfileId], require it to be a Mortal Shell II
+ * profile, and require modState[modId].enabled === true in that profile.
+ * Never falls back to another MS2 profile — legacy UX helpers may search, but
+ * ownership reconciliation must not (a non-active profile enabling a mod is not
+ * evidence for this deployment).
+ */
+function strictActiveProfileModEnabled(
+  api: types.IExtensionApi | undefined,
+  modId: string,
+): boolean {
+  if (!api) return false;
+
+  let state: unknown;
+  try {
+    state = api.getState();
+  } catch {
+    return false;
   }
 
-  return undefined;
+  const s = state as {
+    settings?: { profiles?: { activeProfileId?: unknown } };
+    persistent?: {
+      profiles?: Record<
+        string,
+        { gameId?: unknown; modState?: Record<string, { enabled?: boolean }> }
+      >;
+    };
+  };
+
+  const activeProfileId = s?.settings?.profiles?.activeProfileId;
+  if (typeof activeProfileId !== 'string' || activeProfileId.length === 0) {
+    return false;
+  }
+
+  const profile = s?.persistent?.profiles?.[activeProfileId];
+  if (!profile || profile.gameId !== GAME_ID) {
+    return false;
+  }
+
+  return profile.modState?.[modId]?.enabled === true;
 }
 
 type ResolvedSourceMod = {
@@ -757,11 +806,12 @@ function indexMs2ModsBySource(api: types.IExtensionApi): Map<string, ResolvedSou
 /**
  * UE4SS mod directory names that this deployment actually delivered, derived
  * only from provenance-resolved manifest files: each file's source must resolve
- * unambiguously to an installed MS2 mod enabled in the active profile whose type
- * is eligible for independent UE4SS mods, and the path must provide strong
- * Scripts/*.lua evidence. Manual directories on disk are NOT deployment evidence
- * and must never be inferred here; framework internals (shared libs, bundled
- * loader mods) never qualify.
+ * unambiguously to an installed MS2 mod strictly enabled in the ACTIVE MS2
+ * profile (no fallback to other profiles) whose type is eligible for independent
+ * UE4SS mods, and the path must match that type's canonical UE4SS mod script
+ * layout. Manual directories on disk are NOT deployment evidence and must never
+ * be inferred here; framework internals (shared libs, bundled loader mods) never
+ * qualify.
  */
 function deployedUe4ssModDirs(
   api: types.IExtensionApi | undefined,
@@ -791,10 +841,13 @@ function deployedUe4ssModDirs(
       UE4SS_CONSUMER_SOURCE_TYPES.has(mod.type ?? '')
       || UE4SS_CARRIER_SOURCE_TYPES.has(mod.type ?? '');
     if (!eligibleType) continue; // framework/non-consumer internals are never adopted
-    if (profileModEnabled(api, mod.modId) !== true) continue;
 
-    const name = strongUe4ssModDir(file.relPath);
-    if (!name) continue; // no strong Scripts evidence → not an independent mod dir
+    // Strict active-profile check: the legacy helper may fall back to another
+    // MS2 profile; ownership reconciliation must only trust the ACTIVE one.
+    if (!strictActiveProfileModEnabled(api, mod.modId)) continue;
+
+    const name = strongUe4ssModDir(mod.type, file.relPath);
+    if (!name) continue; // no canonical UE4SS mod script evidence for this type → skip
 
     const key = name.toLowerCase();
     if (!dirs.has(key)) {
