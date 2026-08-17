@@ -40,7 +40,6 @@ export type Ue4ssOwnership =
 
 export type DmlOwnership =
   | 'absent'
-  | 'partial'
   | 'vortex-managed'
   | 'externally-managed';
 
@@ -71,11 +70,19 @@ export interface Ue4ssRuntimeAssessment extends FrameworkPackageState {
   guidance?: string;
 }
 
-export interface DmlRuntimeAssessment {
+export interface DmlRuntimeAssessment extends FrameworkPackageState {
   ownership: DmlOwnership;
   health: RuntimeHealth;
+  managedByVortex: boolean;
   hasDmlDir: boolean;
-  hasPakPayload: boolean;
+  /** Proven core payload of the current DML build (dmgmodloader-dml-2018). */
+  hasCorePak: boolean;
+  hasCoreUcas: boolean;
+  hasCoreUtoc: boolean;
+  /** Recognizable dmlcore_P.* supporting payload — partial evidence, not a complete runtime. */
+  hasSupportPayload: boolean;
+  /** Diagnostic only: misplaced install from the old pak-routing bug (never contributes to health). */
+  misplacedInPakMods: boolean;
   /** True when Binaries/Win64/DML exists (Microsoft DirectML — not DmgModLoader). */
   directMlPresent: boolean;
   message?: string;
@@ -486,11 +493,8 @@ export async function assessUe4ssRuntime(
   return { ...base, guidance };
 }
 
-export function dmlGuidance(
-  a: DmlRuntimeAssessment,
-  extras?: { misplacedInPakMods?: boolean },
-): string {
-  if (extras?.misplacedInPakMods) {
+export function dmlGuidance(a: DmlRuntimeAssessment): string {
+  if (a.misplacedInPakMods) {
     return (
       'DmgModLoader files were found under Content/Paks/~mods but must live in ' +
       'Content/Paks/dml/. Reinstall/redeploy DML with the current extension (mod type ' +
@@ -508,7 +512,7 @@ export function dmlGuidance(
   }
   if (a.health === 'partial') {
     return (
-      'DmgModLoader looks partial under Content/Paks/dml (folder present but no .pak payload). ' +
+      'DmgModLoader looks partial under Content/Paks/dml (incomplete dml.pak/ucas/utoc core set). ' +
       `Repair or reinstall from Nexus mortalshell2/mods/${DML_NEXUS_MOD_ID}. ` +
       'Note: MortalShell2/Binaries/Win64/DML is Microsoft DirectML, not DmgModLoader.'
     );
@@ -522,8 +526,11 @@ export function dmlGuidance(
 }
 
 /**
- * Assess DmgModLoader. Ignores Microsoft DirectML at Binaries/Win64/DML.
- * Detects misplaced installs under ~mods (old pak routing bug).
+ * Assess the on-disk DmgModLoader runtime from filesystem evidence only. Health
+ * is signature-based: complete dml.pak/ucas/utoc core triplet = healthy, any
+ * recognizable core or dmlcore_P.* support file = partial. Vortex package state
+ * never confers health; misplaced ~mods installs and Microsoft DirectML are
+ * reported diagnostically without affecting runtime classification.
  */
 export async function assessDmlRuntime(
   discoveryPath: string,
@@ -536,20 +543,33 @@ export async function assessDmlRuntime(
     join(discoveryPath, 'MortalShell2', 'Content', 'Paks', '~mods', 'dml.pak'),
   );
 
-  let hasPakPayload = false;
+  let entries: string[] = [];
   if (hasDmlDir) {
     try {
-      const entries = await readdir(dmlDir);
-      hasPakPayload = entries.some((e) => /\.(pak|ucas|utoc)$/i.test(e));
+      entries = await readdir(dmlDir);
     } catch {
-      hasPakPayload = false;
+      entries = [];
     }
   }
 
+  const names = new Set(entries.map((entry) => entry.toLowerCase()));
+  const hasCorePak = names.has('dml.pak');
+  const hasCoreUcas = names.has('dml.ucas');
+  const hasCoreUtoc = names.has('dml.utoc');
+  const hasSupportPayload = [
+    'dmlcore_p.pak',
+    'dmlcore_p.ucas',
+    'dmlcore_p.utoc',
+  ].some((name) => names.has(name));
+
+  const completeCore = hasCorePak && hasCoreUcas && hasCoreUtoc;
+  const recognizablePayload =
+    hasCorePak || hasCoreUcas || hasCoreUtoc || hasSupportPayload;
+
   let health: RuntimeHealth = 'absent';
-  if (hasDmlDir && hasPakPayload) {
+  if (completeCore) {
     health = 'healthy';
-  } else if (hasDmlDir || misplacedInPakMods) {
+  } else if (recognizablePayload) {
     health = 'partial';
   }
 
@@ -557,15 +577,15 @@ export async function assessDmlRuntime(
     api,
     VORTEX_DML_MODTYPES,
   );
-  const vortexManaged = packageState.packageEnabled;
+
+  const managedByVortex =
+    health !== 'absent' && packageState.packageEnabled;
 
   let ownership: DmlOwnership = 'absent';
   if (health === 'absent') {
     ownership = 'absent';
-  } else if (vortexManaged) {
+  } else if (managedByVortex) {
     ownership = 'vortex-managed';
-  } else if (health === 'partial') {
-    ownership = 'partial';
   } else {
     ownership = 'externally-managed';
   }
@@ -573,11 +593,17 @@ export async function assessDmlRuntime(
   const base: DmlRuntimeAssessment = {
     ownership,
     health,
+    managedByVortex,
+    ...packageState,
     hasDmlDir,
-    hasPakPayload,
+    hasCorePak,
+    hasCoreUcas,
+    hasCoreUtoc,
+    hasSupportPayload,
+    misplacedInPakMods,
     directMlPresent,
   };
-  const guidance = dmlGuidance(base, { misplacedInPakMods });
+  const guidance = dmlGuidance(base);
   if (health !== 'healthy' || ownership === 'externally-managed') {
     return { ...base, message: guidance, guidance };
   }
