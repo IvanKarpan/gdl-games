@@ -1076,7 +1076,7 @@ export async function notifyMissingReShade(api: types.IExtensionApi): Promise<vo
     type: 'warning',
     title: 'ReShade is required',
     message:
-      'This ReShade preset needs ReShade installed. Install it from reshade.me, select ' +
+      'This mod needs ReShade to work. Install it from reshade.me, select ' +
       'MortalShell2-Win64-Shipping.exe, then restart the game.',
     noDismiss: true,
     actions: [
