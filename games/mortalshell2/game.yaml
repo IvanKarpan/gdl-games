@@ -18,9 +18,10 @@
 # Archives with dwmapi/UE4SS.dll install as framework → Binaries/Win64 (not ue4ss/Mods).
 # LogicMods need healthy UE4SS + enabled BPModLoaderMod (shipped in mod 5). Fix → mods/5.
 # DmgModLoader (mods/4 → Content/Paks/dml) remains routed but is not the LogicMods Fix path.
-# Hooks must export Vortex 2.4 health checks (category/severity/triggers; checkMod
-# or check). Missing `triggers` crashes HealthCheckRegistry and bricks Vortex.
-# missingUe4ssCheck / logicModLoaderCheck are game-level check+fix.
+# The framework dependency diagnostic is one per-mod Vortex 2.4 health check —
+# modFrameworkDependencyCheck (checkMod only, no fix; IModHealthCheck cannot carry
+# a Fix action in Vortex 2.4). Missing `triggers` on a registered check crashes
+# HealthCheckRegistry and bricks Vortex; YAML registration stays deferred below.
 #
 # Other notes:
 #   - Standard asset paks → Content/Paks/~mods (matches Ultra+ layout).
@@ -411,21 +412,12 @@ events:
   # Reconcile mods.txt and surface framework guidance after deployment.
   did-deploy: { hook: afterDeploy }
 
-# TODO(gdl): Re-enable/rework diagnostics once GDL's generated lifecycle
-# test harness supports diagnostics. GdlRuntime legitimately calls
-# IExtensionContext.registerHealthCheck(), but createFakeContext() currently
-# does not provide that method, causing generated lifecycle tests to fail.
-#
-# Keep the hook implementations in src/hooks.ts; later packages will also
-# rework these toward reactive/per-mod dependency checks.
+# TODO(gdl): Enable this once GDL's generated lifecycle fake implements
+# IExtensionContext.registerHealthCheck. The check itself is implemented and
+# covered by Package 04's local dependency test harness.
 #
 # diagnostics:
-#   - hook: missingUe4ssCheck
-#   - hook: ue4ssOwnershipCheck
-#   - hook: ue4ssExternalInfoCheck
-#   - hook: missingDmlCheck
-#   - hook: logicModLoaderCheck
-#   - hook: dmlExternalInfoCheck
+#   - hook: modFrameworkDependencyCheck
 
 toolbarActions:
   - id: open-ue4ss-settings

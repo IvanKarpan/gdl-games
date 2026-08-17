@@ -1347,7 +1347,6 @@ type HealthResult = {
   details?: string;
   executionTime: number;
   timestamp: Date;
-  fixAvailable?: boolean;
 };
 
 type NexusFileInfo = {
@@ -1374,7 +1373,6 @@ function failResult(
   id: string,
   message: string,
   severity: HealthResult['severity'] = 'warning',
-  fixAvailable = false,
 ): HealthResult {
   return {
     checkId: id,
@@ -1383,7 +1381,6 @@ function failResult(
     message,
     executionTime: 0,
     timestamp: new Date(),
-    ...(fixAvailable ? { fixAvailable: true } : {}),
   };
 }
 
@@ -1745,6 +1742,101 @@ export async function dependencyDecisionForMod(
   );
 }
 
+/** Pure decision → user-facing failure message (shared with reactive notifications later). */
+function dependencyFailureMessage(
+  label: string,
+  decision: DependencyDecision,
+  context: {
+    ue4ssOwnership?: string;
+  } = {},
+): string {
+  switch (decision.kind) {
+    case 'install-dml':
+      return `${label} requires a LogicMod loader. DmgModLoader (DML) is not installed.`;
+    case 'enable-dml':
+      return `${label} requires a LogicMod loader. A DML package is already installed in Vortex but is not enabled/deployed for the active Mortal Shell II profile.`;
+    case 'repair-dml':
+      return decision.ownership === 'vortex'
+        ? `${label} requires DML, but the Vortex-managed DML runtime is incomplete. Repair or reinstall the existing DML package, then redeploy.`
+        : `${label} requires DML, but an external/manual DML runtime is incomplete. Repair that existing runtime; Vortex will not overwrite it automatically.`;
+    case 'install-ue4ss':
+      return `${label} requires UE4SS, but no healthy UE4SS runtime is installed.`;
+    case 'enable-ue4ss':
+      return `${label} requires UE4SS. A UE4SS package is already installed in Vortex but is not enabled/deployed for the active Mortal Shell II profile.`;
+    case 'repair-ue4ss':
+      if (context.ue4ssOwnership === 'ultra-managed') {
+        return `${label} requires UE4SS, but the Ultra+-managed UE4SS runtime is incomplete. Repair it through Ultra+ Manager; Vortex will not overwrite it.`;
+      }
+      return decision.ownership === 'vortex'
+        ? `${label} requires UE4SS, but the Vortex-managed UE4SS runtime is incomplete. Repair or reinstall the existing package, then redeploy.`
+        : `${label} requires UE4SS, but the manual/external runtime is incomplete. Repair that runtime; Vortex will not overwrite it automatically.`;
+    default:
+      return `${label} dependency is satisfied.`;
+  }
+}
+
+/**
+ * The one Package-04 per-mod framework dependency diagnostic (Vortex 2.4+
+ * IModHealthCheck, checkMod only). Delegates to the shared decision adapter —
+ * no independent state interpretation, and deliberately NO `fix`/`fixAvailable`
+ * and no game-level `check`: Vortex health checks are per-mod and cannot carry
+ * a Fix action in 2.4. Registration stays deferred (see game.yaml TODO) until
+ * GDL's lifecycle fake implements registerHealthCheck.
+ */
+export const modFrameworkDependencyCheck: types.IModHealthCheck = {
+  id: 'mortalshell2-mod-framework-dependency',
+  name: 'Mortal Shell II mod dependencies',
+  description:
+    'Checks only installed mods that require UE4SS or a LogicMod loader.',
+  category: 'requirements',
+  severity: 'warning',
+  triggers: [
+    'mods-changed',
+    'profile-changed',
+    'game-changed',
+  ],
+  gameId: GAME_ID,
+  checkMod: async (
+    api: types.IExtensionApi,
+    mod: ModCheckCtx,
+  ) => {
+    const started = Date.now();
+    const result = await dependencyDecisionForMod(api, mod);
+
+    if (
+      result.decision.kind === 'not-applicable'
+      || result.decision.kind === 'satisfied'
+    ) {
+      return {
+        checkId: 'mortalshell2-mod-framework-dependency',
+        status: 'passed',
+        severity: 'warning',
+        message:
+          result.decision.kind === 'not-applicable'
+            ? 'No optional framework dependency.'
+            : 'Required framework dependency is satisfied.',
+        executionTime: Date.now() - started,
+        timestamp: new Date(),
+      };
+    }
+
+    return {
+      checkId: 'mortalshell2-mod-framework-dependency',
+      status: 'failed',
+      severity: 'warning',
+      message: dependencyFailureMessage(
+        result.label,
+        result.decision,
+        {
+          ue4ssOwnership: result.ue4ssOwnership,
+        },
+      ),
+      executionTime: Date.now() - started,
+      timestamp: new Date(),
+    };
+  },
+};
+
 function profileModEnabled(
   api: types.IExtensionApi,
   modId: string,
@@ -1871,57 +1963,6 @@ function makeModHealthCheck(spec: {
   };
 }
 
-/**
- * UE4SS runtime missing/unhealthy while an enabled UE4SS-dependent mod needs it.
- * LogicMods are covered by logicModLoaderCheck (DML and/or BPModLoaderMod).
- */
-export const missingUe4ssCheck: types.IModHealthCheck = {
-  id: 'mortalshell2-missing-ue4ss',
-  name: 'UE4SS runtime required',
-  description:
-    'Raises when an enabled UE4SS-dependent mod needs UE4SS and the runtime is not healthy. ' +
-    'Fix downloads the tested UE4SS package from Nexus (mortalshell2/mods/5).',
-  category: 'requirements',
-  severity: 'error',
-  triggers: ['mods-changed', 'game-changed', 'startup'],
-  gameId: GAME_ID,
-  check: async (api: types.IExtensionApi, _signal?: AbortSignal) => {
-    if (!hasEnabledUe4ssDependentMod(api)) {
-      return passResult('mortalshell2-missing-ue4ss');
-    }
-    const discovery = getDiscovery(api);
-    if (!discovery?.path) {
-      return passResult('mortalshell2-missing-ue4ss');
-    }
-    const assessment = await assessUe4ssRuntime(discovery.path, api);
-    if (assessment.health === 'healthy') {
-      return passResult('mortalshell2-missing-ue4ss');
-    }
-
-    const ultraOrExternal =
-      assessment.ultraPlusDetected ||
-      assessment.ownership === 'ultra-managed' ||
-      assessment.ownership === 'externally-managed';
-
-    const parts = [
-      assessment.guidance ?? ue4ssGuidance(assessment),
-      ultraOrExternal
-        ? 'Fix will not replace an Ultra+/external runtime — repair it with its owner.'
-        : 'Use Fix to download UE4SS from Nexus (mortalshell2/mods/5).',
-    ];
-
-    return failResult(
-      'mortalshell2-missing-ue4ss',
-      parts.join(' '),
-      'error',
-      !ultraOrExternal,
-    );
-  },
-  fix: async (api: types.IExtensionApi) => {
-    await fixMissingUe4ssRuntime(api);
-  },
-};
-
 /** Partial runtime / nested paths / Vortex takeover of external UE4SS. */
 export const ue4ssOwnershipCheck = makeModHealthCheck({
   id: 'mortalshell2-ue4ss-ownership',
@@ -1976,130 +2017,3 @@ export const ue4ssOwnershipCheck = makeModHealthCheck({
   },
 });
 
-/** Soft Ultra+/manual UE4SS note — never fails. */
-export const ue4ssExternalInfoCheck = makeModHealthCheck({
-  id: 'mortalshell2-ue4ss-external-info',
-  name: 'UE4SS external ownership info',
-  description:
-    'Records externally managed / Ultra+ ownership without treating it as an error.',
-  severity: 'info',
-  check: async (api) => {
-    const discovery = getDiscovery(api);
-    if (!discovery?.path) return { ok: true };
-    const assessment = await assessUe4ssRuntime(discovery.path, api);
-    if (
-      assessment.health === 'healthy' &&
-      (assessment.ownership === 'externally-managed' ||
-        assessment.ownership === 'ultra-managed')
-    ) {
-      return { ok: true, message: assessment.message };
-    }
-    return { ok: true };
-  },
-});
-
-/** DML-specific payload without DmgModLoader (never LogicMods alone). */
-export const missingDmlCheck = makeModHealthCheck({
-  id: 'mortalshell2-missing-dml',
-  name: 'DmgModLoader (DML) required',
-  description:
-    'Raises only for DML-specific archives/paths — never because LogicMods/ exists.',
-  severity: 'error',
-  check: async (api, files) => {
-    if (!files.some(isDmlDependentPath)) return { ok: true };
-    const discovery = getDiscovery(api);
-    if (!discovery?.path) return { ok: true };
-    const assessment = await assessDmlRuntime(discovery.path, api);
-    if (assessment.health === 'healthy') return { ok: true };
-    const ue4ss = await assessUe4ssRuntime(discovery.path, api);
-    let message = assessment.guidance ?? dmlGuidance(assessment);
-    if (ue4ss.health === 'healthy') {
-      const bp = await assessBpModLoader(discovery.path);
-      if (bp.present && bp.enabled) {
-        message +=
-          ' Enabled BPModLoaderMod is already present — if this mod is dual-compatible ' +
-          '(LogicMods via UE4SS or DML), you may not need DML.';
-      }
-    }
-    return { ok: false, message, severity: 'error' };
-  },
-});
-
-/**
- * LogicMod without UE4SS + BPModLoaderMod.
- *
- * Uses game-level IHealthCheck (`check` + `fix`) so Vortex can show a Fix
- * action. IModHealthCheck cannot carry `fix` in Vortex 2.4.
- * Fix always points at Nexus mortalshell2/mods/5.
- */
-export const logicModLoaderCheck: types.IModHealthCheck = {
-  id: 'mortalshell2-logicmod-loader',
-  name: 'LogicMod loader availability',
-  description:
-    'LogicMods need a healthy UE4SS runtime with enabled BPModLoaderMod under ue4ss/Mods. ' +
-    'Fix downloads the tested UE4SS package from Nexus (mortalshell2/mods/5).',
-  category: 'requirements',
-  severity: 'warning',
-  triggers: ['mods-changed', 'game-changed', 'startup'],
-  gameId: GAME_ID,
-  check: async (api: types.IExtensionApi, _signal?: AbortSignal) => {
-    const discovery = getDiscovery(api);
-    if (!discovery?.path) {
-      return passResult('mortalshell2-logicmod-loader');
-    }
-    // Vortex mod-type detection can lag; also trust on-disk LogicMods paks
-    // (AutoPickup.pak etc. after a successful logicmods deploy).
-    if (!(await logicModsRequireLoader(api))) {
-      return passResult('mortalshell2-logicmod-loader');
-    }
-
-    const ue4ss = await assessUe4ssRuntime(discovery.path, api);
-    const { ok, bp } = await hasLogicModLoader(discovery.path);
-    if (ok) {
-      return passResult('mortalshell2-logicmod-loader', bp.guidance);
-    }
-
-    const ultra =
-      ue4ss.ultraPlusDetected || ue4ss.ownership === 'ultra-managed';
-    const parts =
-      ue4ss.health !== 'healthy'
-        ? [logicModsNeedUe4ssGuidance(ue4ss)]
-        : [bpModLoaderGuidance(bp, ultra)];
-
-    const canAutoFix =
-      ue4ss.health !== 'healthy'
-        ? !(
-            ue4ss.ultraPlusDetected ||
-            ue4ss.ownership === 'ultra-managed' ||
-            ue4ss.ownership === 'externally-managed'
-          )
-        : !(ue4ss.ultraPlusDetected || ue4ss.ownership === 'ultra-managed');
-
-    return failResult(
-      'mortalshell2-logicmod-loader',
-      parts.join(' '),
-      'warning',
-      canAutoFix,
-    );
-  },
-  fix: async (api: types.IExtensionApi) => {
-    await fixLogicModLoaderStack(api);
-  },
-};
-
-/** Soft note when healthy external DML is present. */
-export const dmlExternalInfoCheck = makeModHealthCheck({
-  id: 'mortalshell2-dml-external-info',
-  name: 'DML external ownership info',
-  description: 'Records externally managed DML without treating it as an error.',
-  severity: 'info',
-  check: async (api) => {
-    const discovery = getDiscovery(api);
-    if (!discovery?.path) return { ok: true };
-    const assessment = await assessDmlRuntime(discovery.path, api);
-    if (assessment.health === 'healthy' && assessment.ownership === 'externally-managed') {
-      return { ok: true, message: assessment.message };
-    }
-    return { ok: true };
-  },
-});
