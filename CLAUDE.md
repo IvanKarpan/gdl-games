@@ -2,8 +2,8 @@
 
 Monorepo of Vortex game extensions. Each game is one declarative `games/<id>/game.yaml` (plus a
 `gameart.webp`, and `src/hooks.ts` only if it references a hook), compiled by the shared `gdl/`
-toolchain. Nx infers a project per `game.yaml` — there are no per-game `package.json`,
-`vitest.config`, or workflow files.
+toolchain. Nx infers a project per `game.yaml` — there are no per-game `package.json` or workflow
+files. A game may add local test configuration when source-level tests need a custom target.
 
 This file defines nothing on its own. It says where each fact lives, and lists the rules that apply
 to every session.

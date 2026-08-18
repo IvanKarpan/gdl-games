@@ -8,11 +8,11 @@ Each game is a declarative `game.yaml` plus a `gameart.webp` logo under `games/<
 optional `src/hooks.ts` for game-specific logic such as version detection or deploy hooks). GDL
 compiles that into a bundled Vortex extension. There is **one** copy of the GDL toolchain for the
 whole repo (the `gdl/` submodule), and **one** set of orchestration / CI / packaging config at the
-root — no per-game `package.json`, `vitest.config`, or workflow files.
+root — no per-game `package.json` or workflow files.
 
 Task running is handled by [Nx](https://nx.dev): each `games/*/game.yaml` is detected as an Nx
-project (via an inference plugin — no per-game config), giving cached, parallel `build`/`test`/
-`package` targets and `nx affected`.
+project via an inference plugin, giving cached, parallel `build`/`test`/`package` targets and
+`nx affected`. A game may add local test configuration when its source tests need a custom target.
 
 ```
 gdl-games/
@@ -20,7 +20,7 @@ gdl-games/
 ├── games/                     # one folder per game — currently 007firstlight,
 │   ├── solarpunk/             #   assassinscreedblackflagresynced, gothic1remake,
 │   │   ├── game.yaml          #   halocampaignevolved, moonlightpeaks, outward2,
-│   │   └── gameart.webp       #   paralives, solarpunk, subnautica2
+│   │   └── gameart.webp       #   paralives, solarpunk, subnautica2, mortalshell2
 │   └── subnautica2/           # games needing custom logic also have:
 │       └── src/hooks.ts       #   version detection / deploy hooks
 ├── docs/corpus-manifests.md   # corpus verification: how it works, fails, and the workaround
@@ -152,10 +152,10 @@ The guided path is the **`/implement-game-extension`** skill: give it the Nexus 
 and the game name, and it researches the game, writes `game.yaml`, fetches the art, supports every
 mod currently on the game's Nexus page, and gets the build green.
 
-To do it by hand: create `games/<id>/game.yaml` and drop in a `games/<id>/gameart.webp`. That's it
-— no `package.json`, no `vitest.config`, no workflow (add a `src/hooks.ts` only if the game needs
-version-detection or deploy hooks). The root scripts and CI pick up any `games/*/game.yaml`
-automatically.
+To do it by hand: create `games/<id>/game.yaml` and drop in a `games/<id>/gameart.webp`. By default,
+no `package.json`, test configuration, or workflow is needed (add `src/hooks.ts` only if the game
+needs version-detection or deploy hooks). Source-level tests may add the local test configuration
+described above. The root scripts and CI pick up any `games/*/game.yaml` automatically.
 
 Document your research in **`#` comment blocks inside `game.yaml`** — engine and layout, provenance
 for each store id, and `# unverified` on anything you inferred rather than observed. Exemplars:
